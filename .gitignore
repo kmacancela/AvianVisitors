@@ -39,6 +39,7 @@ templates/*.service
 scripts/*.txt
 scripts/*.db
 scripts/avian-verifier.json
+scripts/review-candidates/
 scripts/review-clips/
 scripts/review-labels.jsonl
 analyzing_now.txt

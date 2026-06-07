@@ -8,7 +8,7 @@ import numpy as np
 from .classes import Detection, ParseFileName
 from .helpers import get_settings, get_language
 from .models import get_model
-from .verifier import promote_low_confidence_candidates
+from .verifier import cache_review_candidate_audio, promote_low_confidence_candidates
 
 log = logging.getLogger(__name__)
 
@@ -157,6 +157,7 @@ def run_analysis(file):
     # Process audio data and get detections
     raw_detections, predicted_species_list = analyzeAudioData(audio_data, conf.getfloat('OVERLAP'), conf.getfloat('LATITUDE'),
                                                               conf.getfloat('LONGITUDE'), file.week)
+    cache_review_candidate_audio(file, raw_detections)
     confident_detections = []
     for time_slot, entries in raw_detections.items():
         sci_name, confidence = entries[0]

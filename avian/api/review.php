@@ -21,6 +21,7 @@ $REVIEW_LOG    = "$BIRDNETPI_DIR/scripts/review-labels.jsonl";
 $REVIEW_FALLBACK_LOG = '/tmp/avian-review-labels.jsonl';
 $REVIEW_CLIPS_DIR = "$BIRDNETPI_DIR/scripts/review-clips";
 $REVIEW_FALLBACK_CLIPS_DIR = '/tmp/avian-review-clips';
+$REVIEW_CANDIDATES_DIR = "$BIRDNETPI_DIR/scripts/review-candidates";
 $action        = $_GET['action'] ?? 'candidates';
 
 function review_json($data, int $status = 200): void {
@@ -35,14 +36,26 @@ function review_shell(string $cmd): string {
     return implode("\n", $out);
 }
 
-function safe_stream_file(string $file): ?string {
-    global $STREAM_DIR;
+function review_audio_file(string $file): ?string {
+    global $STREAM_DIR, $REVIEW_CANDIDATES_DIR;
     $file = basename($file);
     if (!preg_match('/^\d{4}-\d{2}-\d{2}-birdnet-\d{2}:\d{2}:\d{2}\.wav$/', $file)) {
         return null;
     }
-    $path = "$STREAM_DIR/$file";
-    return is_file($path) && filesize($path) >= 64 ? $path : null;
+    $date = substr($file, 0, 10);
+    $paths = [
+        "$STREAM_DIR/$file",
+        "$REVIEW_CANDIDATES_DIR/$date/$file",
+        "$REVIEW_CANDIDATES_DIR/$file",
+    ];
+    foreach ($paths as $path) {
+        if (is_file($path) && filesize($path) >= 64) return $path;
+    }
+    return null;
+}
+
+function safe_stream_file(string $file): ?string {
+    return review_audio_file($file);
 }
 
 function species_common(string $raw): array {
@@ -63,7 +76,7 @@ function review_slug(string $value): string {
 
 function save_review_clip(array $mark): ?string {
     global $REVIEW_CLIPS_DIR, $REVIEW_FALLBACK_CLIPS_DIR;
-    $source = safe_stream_file((string)$mark['file']);
+    $source = review_audio_file((string)$mark['file']);
     if (!$source) return null;
 
     $species = review_slug((string)($mark['sci'] ?: $mark['com']));
@@ -137,7 +150,7 @@ function candidates(): array {
             'com' => $label['com'],
             'confidence' => $conf,
             'accepted' => isset($accepted[$current]),
-            'file_exists' => safe_stream_file($current) !== null,
+            'file_exists' => review_audio_file($current) !== null,
         ];
     }
     usort($rows, function ($a, $b) {
@@ -148,7 +161,7 @@ function candidates(): array {
 }
 
 if ($action === 'audio') {
-    $path = safe_stream_file((string)($_GET['file'] ?? ''));
+    $path = review_audio_file((string)($_GET['file'] ?? ''));
     if (!$path) {
         http_response_code(404);
         header('Content-Type: text/plain; charset=utf-8');
