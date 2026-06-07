@@ -204,6 +204,40 @@ function reviewed_lookup(): array {
     return $out;
 }
 
+function review_mark_rows(): array {
+    global $REVIEW_LOG, $REVIEW_FALLBACK_LOG;
+    $out = [];
+    foreach ([$REVIEW_FALLBACK_LOG, $REVIEW_LOG] as $path) {
+        if (!is_file($path)) continue;
+        $lines = @file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+        if (!is_array($lines)) continue;
+        foreach ($lines as $line) {
+            $row = json_decode($line, true);
+            if (!is_array($row)) continue;
+            $verdict = (string)($row['verdict'] ?? '');
+            if (!preg_match('/^(correct|wrong|unsure)$/', $verdict)) continue;
+            $file = basename((string)($row['file'] ?? ''));
+            $start = (float)($row['start_s'] ?? 0);
+            $end = (float)($row['end_s'] ?? 0);
+            $sci = trim((string)($row['sci'] ?? ''));
+            $com = trim((string)($row['com'] ?? ''));
+            if ($file === '' || ($sci === '' && $com === '')) continue;
+            $key = review_key($file, $start, $end, $sci ?: $com);
+            $out[$key] = [
+                'reviewed_at' => (string)($row['reviewed_at'] ?? ''),
+                'file' => $file,
+                'start_s' => $start,
+                'end_s' => $end,
+                'sci' => $sci,
+                'com' => $com,
+                'confidence' => max(0.0, min(1.0, (float)($row['confidence'] ?? 0))),
+                'verdict' => $verdict,
+            ];
+        }
+    }
+    return array_values($out);
+}
+
 function accepted_lookup(): array {
     $dbPath = dirname(__DIR__, 2) . '/scripts/birds.db';
     if (!is_file($dbPath)) return [];
@@ -368,6 +402,163 @@ function threshold_suggestion(array $buckets, float $minThreshold): array {
     ];
 }
 
+function empty_calibration(string $sci, string $com, float $minThreshold): array {
+    return [
+        'sci' => $sci,
+        'com' => $com,
+        'status' => 'no_data',
+        'status_label' => 'No review data',
+        'reviewed' => 0,
+        'evidence' => 0,
+        'correct' => 0,
+        'wrong' => 0,
+        'unsure' => 0,
+        'accuracy' => null,
+        'reliable_above' => null,
+        'review_floor' => $minThreshold,
+        'title' => 'No local review data yet',
+        'message' => 'Mark clips right or wrong to learn how trustworthy this species is on this BirdNET-Pi.',
+        'suggestion' => null,
+        'buckets' => [],
+    ];
+}
+
+function calibration_from_marks(array $marks, float $minThreshold): array {
+    $bucketSize = 0.1;
+    $bucketCount = 10;
+    $buckets = [];
+    for ($i = 0; $i < $bucketCount; $i++) {
+        $lo = round($i * $bucketSize, 1);
+        $hi = round(($i + 1) * $bucketSize, 1);
+        $buckets[$i] = [
+            'label' => number_format($lo, 1) . '-' . number_format($hi, 1),
+            'min' => $lo,
+            'max' => $hi,
+            'guesses' => 0,
+            'reviewed' => 0,
+            'correct' => 0,
+            'wrong' => 0,
+            'unsure' => 0,
+        ];
+    }
+
+    $sci = '';
+    $com = '';
+    foreach ($marks as $mark) {
+        if ($sci === '' && trim((string)($mark['sci'] ?? '')) !== '') $sci = trim((string)$mark['sci']);
+        if ($com === '' && trim((string)($mark['com'] ?? '')) !== '') $com = trim((string)$mark['com']);
+        $conf = max(0.0, min(1.0, (float)($mark['confidence'] ?? 0)));
+        $idx = min($bucketCount - 1, max(0, (int)floor($conf / $bucketSize)));
+        $verdict = (string)($mark['verdict'] ?? '');
+        if (!preg_match('/^(correct|wrong|unsure)$/', $verdict)) continue;
+        $buckets[$idx]['guesses']++;
+        $buckets[$idx]['reviewed']++;
+        $buckets[$idx][$verdict]++;
+    }
+
+    $correct = (int)array_sum(array_column($buckets, 'correct'));
+    $wrong = (int)array_sum(array_column($buckets, 'wrong'));
+    $unsure = (int)array_sum(array_column($buckets, 'unsure'));
+    $reviewed = $correct + $wrong + $unsure;
+    $evidence = $correct + $wrong;
+    $accuracy = $evidence > 0 ? round($correct / $evidence, 3) : null;
+    $suggestion = threshold_suggestion(array_values($buckets), $minThreshold);
+
+    $status = 'not_enough_data';
+    $statusLabel = 'Learning';
+    $title = 'Review more clips';
+    $message = $suggestion['message'];
+    if ($evidence >= 10 && ($suggestion['status'] ?? '') === 'reliable_above') {
+        $status = 'reliable';
+        $statusLabel = 'Reliable above ' . number_format((float)$suggestion['threshold'], 2);
+        $title = 'Local threshold found';
+        $message = 'Treat ' . ($com ?: $sci ?: 'this species') . ' as locally reliable at '
+            . number_format((float)$suggestion['threshold'], 2) . '+; keep lower clips in review.';
+    } elseif ($evidence >= 10 && $accuracy !== null && $accuracy < 0.5) {
+        $status = 'suspicious';
+        $statusLabel = 'Mostly false positives';
+        $title = 'Keep under review';
+        $message = 'Reviewed clips are only ' . (string)round($accuracy * 100) . '% right so far. Do not auto-trust this species yet.';
+    } elseif ($evidence >= 10) {
+        $status = 'learning';
+        $statusLabel = 'Mixed evidence';
+        $title = 'Keep reviewing';
+        $message = 'Reviewed clips are ' . (string)round(($accuracy ?? 0) * 100) . '% right, but no confidence floor is reliable enough yet.';
+    }
+
+    return [
+        'sci' => $sci,
+        'com' => $com,
+        'status' => $status,
+        'status_label' => $statusLabel,
+        'reviewed' => $reviewed,
+        'evidence' => $evidence,
+        'correct' => $correct,
+        'wrong' => $wrong,
+        'unsure' => $unsure,
+        'accuracy' => $accuracy,
+        'reliable_above' => ($suggestion['status'] ?? '') === 'reliable_above' ? (float)$suggestion['threshold'] : null,
+        'review_floor' => $minThreshold,
+        'title' => $title,
+        'message' => $message,
+        'suggestion' => $suggestion,
+        'buckets' => array_values($buckets),
+    ];
+}
+
+function calibration(): array {
+    $minThreshold = max(0, min(1, (float)($_GET['min_conf'] ?? 0.4)));
+    $query = strtolower(trim((string)($_GET['q'] ?? '')));
+    $sciFilter = trim((string)($_GET['sci'] ?? ''));
+    $limit = max(1, min(100, (int)($_GET['limit'] ?? 12)));
+    $groups = [];
+    $marks = review_mark_rows();
+
+    foreach ($marks as $mark) {
+        $sci = trim((string)$mark['sci']);
+        $com = trim((string)$mark['com']);
+        $hay = strtolower($sci . ' ' . $com);
+        if ($sciFilter !== '' && strcasecmp($sci, $sciFilter) !== 0) continue;
+        if ($sciFilter === '' && $query !== '' && strpos($hay, $query) === false) continue;
+        $key = review_slug($sci !== '' ? $sci : $com);
+        if (!isset($groups[$key])) $groups[$key] = [];
+        $groups[$key][] = $mark;
+    }
+
+    $species = [];
+    foreach ($groups as $groupMarks) {
+        $species[] = calibration_from_marks($groupMarks, $minThreshold);
+    }
+    usort($species, function ($a, $b) {
+        if ($a['evidence'] !== $b['evidence']) return $b['evidence'] <=> $a['evidence'];
+        if ($a['reviewed'] !== $b['reviewed']) return $b['reviewed'] <=> $a['reviewed'];
+        return strcasecmp((string)($a['com'] ?: $a['sci']), (string)($b['com'] ?: $b['sci']));
+    });
+    $species = array_slice($species, 0, $limit);
+
+    $single = null;
+    if (count($species) === 1) {
+        $single = $species[0];
+    } elseif ($sciFilter !== '') {
+        $single = empty_calibration($sciFilter, '', $minThreshold);
+    } elseif ($query !== '' && count($species) === 0) {
+        $single = empty_calibration('', $query, $minThreshold);
+    }
+
+    return [
+        'query' => $query,
+        'sci' => $sciFilter,
+        'min_confidence' => $minThreshold,
+        'calibration' => $single,
+        'species' => $species,
+        'totals' => [
+            'species' => count($groups),
+            'reviewed' => array_sum(array_column($species, 'reviewed')),
+            'evidence' => array_sum(array_column($species, 'evidence')),
+        ],
+    ];
+}
+
 function buckets(): array {
     $lines = max(80, min(1200, (int)($_GET['lines'] ?? 1200)));
     $hours = max(1, min(168, (int)($_GET['hours'] ?? 12)));
@@ -492,6 +683,14 @@ if ($action === 'candidates') {
 if ($action === 'buckets') {
     review_json([
         'summary' => buckets(),
+        'as_of' => date('c'),
+    ]);
+    exit;
+}
+
+if ($action === 'calibration') {
+    review_json([
+        'summary' => calibration(),
         'as_of' => date('c'),
     ]);
     exit;

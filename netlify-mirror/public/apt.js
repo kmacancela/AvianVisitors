@@ -2074,6 +2074,7 @@
   // tunnel; one fetch per session is plenty.
   var SPECIES_CACHE = {};
   var WIKI_CACHE = {};
+  var CALIBRATION_CACHE = {};
   var modalAudio = null;
   var modalRecBtn = null;
   function fmtRecTime(d, t) {
@@ -2180,6 +2181,54 @@
     var n = +pose || 1;
     return n > 1 ? base + '&pose=' + n : base;
   }
+  function confidenceLabel(value) {
+    return value == null || isNaN(+value) ? '-' : (+value).toFixed(2);
+  }
+  function accuracyLabel(value) {
+    return value == null || isNaN(+value) ? '-' : Math.round((+value) * 100) + '%';
+  }
+  function calibrationName(c) {
+    return (c && (c.com || c.sci)) || 'this species';
+  }
+  function calibrationAttr(s) {
+    return String(s == null ? '' : s).replace(/"/g, '&quot;').replace(/</g, '&lt;');
+  }
+  function calibrationCardHtml(c, compact) {
+    if (!c) return '';
+    var threshold = c.reliable_above == null ? 'learning' : confidenceLabel(c.reliable_above) + '+';
+    var accuracy = accuracyLabel(c.accuracy);
+    var reviewed = +c.reviewed || 0;
+    var evidence = +c.evidence || 0;
+    var label = c.status_label || c.title || 'Learning';
+    return '<section class="local-calibration-card is-' + calibrationAttr(c.status || 'no_data') + (compact ? ' is-compact' : '') + '">'
+      + '<div class="local-calibration-head">'
+      + '  <span>local confidence</span>'
+      + '  <strong>' + adminEsc(label) + '</strong>'
+      + '</div>'
+      + '<div class="local-calibration-metrics">'
+      + '  <span><b>' + adminEsc(String(reviewed)) + '</b><small>reviewed</small></span>'
+      + '  <span><b>' + adminEsc(accuracy) + '</b><small>right</small></span>'
+      + '  <span><b>' + adminEsc(threshold) + '</b><small>trust above</small></span>'
+      + '</div>'
+      + '<p>' + adminEsc(c.message || ('Mark clips to calibrate ' + calibrationName(c) + ' locally.')) + '</p>'
+      + (compact ? '' : '<div class="local-calibration-breakdown">'
+        + '<span>' + adminEsc(String(+c.correct || 0)) + ' right</span>'
+        + '<span>' + adminEsc(String(+c.wrong || 0)) + ' wrong</span>'
+        + '<span>' + adminEsc(String(+c.unsure || 0)) + ' unsure</span>'
+        + (evidence ? '<span>' + adminEsc(String(evidence)) + ' right/wrong labels</span>' : '')
+        + '</div>')
+      + '</section>';
+  }
+  function loadCalibrationForSpecies(sci) {
+    if (!sci || publicMirror) return Promise.resolve(null);
+    if (CALIBRATION_CACHE[sci]) return Promise.resolve(CALIBRATION_CACHE[sci]);
+    return fetchJson(apiUrl('review.php?action=calibration&sci=' + encodeURIComponent(sci) + '&min_conf=0.4'))
+      .then(function (j) {
+        var c = j && j.summary && j.summary.calibration;
+        CALIBRATION_CACHE[sci] = c || null;
+        return CALIBRATION_CACHE[sci];
+      });
+  }
   function openDetailModal(sci) {
     if (!sci) return;
     var modal = document.getElementById('detail-modal');
@@ -2252,6 +2301,12 @@
     document.getElementById('modalFirstSeen').textContent = '-';
     document.getElementById('modalRarity').textContent = '-';
     document.getElementById('modalRarity').classList.remove('rare');
+    var modalCalibration = document.getElementById('modalCalibration');
+    if (modalCalibration) {
+      modalCalibration.hidden = true;
+      modalCalibration.innerHTML = '';
+      modalCalibration.removeAttribute('data-status');
+    }
     document.getElementById('modalDesc').textContent = 'Loading description...';
     document.getElementById('modalDesc').classList.add('placeholder');
     document.getElementById('modalRecordings').innerHTML = '<li class="rec-empty">Loading recordings...</li>';
@@ -2314,6 +2369,15 @@
         : '<li class="rec-empty">No recordings yet.</li>';
     }).catch(function () {
       document.getElementById('modalRecordings').innerHTML = '<li class="rec-empty">Failed to load recordings.</li>';
+    });
+
+    loadCalibrationForSpecies(sci).then(function (c) {
+      if (!c || !modalCalibration) return;
+      modalCalibration.innerHTML = calibrationCardHtml(c, true);
+      modalCalibration.setAttribute('data-status', c.status || 'no_data');
+      modalCalibration.hidden = false;
+    }).catch(function () {
+      if (modalCalibration) modalCalibration.hidden = true;
     });
 
     // Wikipedia summary (description + genus / family).

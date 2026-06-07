@@ -1981,6 +1981,88 @@
   .modal-meta .k { letter-spacing: 0.12em; text-transform: uppercase; }
   .modal-meta .v { color: var(--ink); margin-left: 6px; }
   .modal-meta .v.rare { color: var(--accent-2); }
+  .local-calibration[hidden] { display: none; }
+  .local-calibration-card {
+    background: var(--paper);
+    border-left: 2px solid rgba(143,132,110,.45);
+    border-radius: 8px;
+    padding: 10px 12px;
+    box-shadow: var(--edge);
+  }
+  .local-calibration-card.is-reliable { border-left-color: rgba(90,122,58,.78); }
+  .local-calibration-card.is-learning,
+  .local-calibration-card.is-not_enough_data { border-left-color: rgba(196,122,31,.58); }
+  .local-calibration-card.is-suspicious { border-left-color: rgba(168,52,29,.68); }
+  .local-calibration-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 8px;
+    font: 10px ui-monospace, Menlo, monospace;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+  }
+  .local-calibration-head strong {
+    color: var(--ink);
+    font-weight: 500;
+    text-align: right;
+  }
+  .local-calibration-metrics {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+    margin: 0 0 8px;
+  }
+  .local-calibration-metrics span {
+    min-width: 0;
+    padding: 7px 8px;
+    border-radius: 5px;
+    background: var(--paper-2);
+    box-shadow: var(--recess);
+  }
+  .local-calibration-metrics b {
+    display: block;
+    font: 700 15px/1 ui-serif, Georgia, serif;
+    color: var(--ink);
+    font-variant-numeric: tabular-nums;
+  }
+  .local-calibration-metrics small {
+    display: block;
+    margin-top: 4px;
+    font: 8.5px ui-monospace, Menlo, monospace;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+  }
+  .local-calibration-card p {
+    margin: 0;
+    font: 11.5px/1.4 ui-serif, Georgia, serif;
+    color: var(--ink-soft);
+  }
+  .modal-info .local-calibration {
+    margin-top: 14px;
+  }
+  .modal-info .local-calibration-card {
+    background: var(--paper-2);
+    padding: 10px;
+    box-shadow: var(--recess);
+  }
+  .modal-info .local-calibration-card.is-compact .local-calibration-head {
+    margin-bottom: 7px;
+  }
+  .modal-info .local-calibration-card.is-compact .local-calibration-metrics {
+    gap: 5px;
+    margin-bottom: 7px;
+  }
+  .modal-info .local-calibration-card.is-compact .local-calibration-metrics span {
+    padding: 6px 7px;
+    background: var(--paper);
+  }
+  .modal-info .local-calibration-card.is-compact p {
+    font-size: 11px;
+  }
   .modal-recordings {
     margin-top: 24px; padding-top: 16px;
     box-shadow: inset 0 1px 0 rgba(26,22,18,0.07);

@@ -18,11 +18,12 @@
 <meta name="twitter:image" content="https://karina-birdhaven.netlify.app/avian-visitors-preview-20260605-v1.png">
 <link rel="icon" type="image/png" href="./favicon.png">
 <link rel="apple-touch-icon" href="./favicon.png">
-<link rel="stylesheet" href="./styles.css?v=20260606-stats-mobile-width-v1">
+<link rel="stylesheet" href="./styles.css?v=20260607-local-calibration-v1">
 </head>
 <body class="av-local av-public">
 <!-- Pill in the top-left slot, only visible on admin overlays
-     (body.admin-on); CSS in styles.css?v=20260606-stats-mobile-width-v1"/" returns to the collage view via a full reload, which is
+     (body.admin-on); CSS in styles.css hides it everywhere else.
+     "/" returns to the collage view via a full reload, which is
      fine for an off-hot-path control. -->
 <a class="return-to-atlas" id="returnToAtlas" href="/" aria-label="back to collage">
   <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
@@ -159,6 +160,7 @@
           <span class="meta-item"><span class="k">genus</span><span class="v" id="modalGenus">-</span></span>
           <span class="meta-item"><span class="k">rarity</span><span class="v" id="modalRarity">-</span></span>
         </div>
+        <div class="local-calibration" id="modalCalibration" hidden></div>
       </div>
     </div>
     <div class="modal-recordings">
@@ -207,6 +209,6 @@
   </div>
 </section>
 
-<script src="./apt.js?v=20260607-illustration-metadata-s25-i18"></script>
+<script src="./apt.js?v=20260607-local-calibration-s25-i18-v1"></script>
 </body>
 </html>
