@@ -10,6 +10,10 @@ Each species gets two poses: <slug>.png (perched) and <slug>-2.png
 style - the prompt body is re-sent verbatim per request with
 {sci_name}, {com_name}, and {pose} substituted.
 
+When writing to the default illustration folder, this also refreshes the
+collage metadata (dims/masks, baked frontend tables, mirror copy, cache
+versions) so newly generated birds appear in both Atlas and Collage.
+
 Usage:
     # Every species BirdNET-Pi knows:
     python3 pregen.py --labels ~/BirdNET-Pi/model/labels.txt
@@ -32,6 +36,7 @@ import base64
 import json
 import os
 import re
+import subprocess
 import sys
 import time
 import urllib.error
@@ -184,6 +189,8 @@ def main() -> int:
                     choices=list(POSES.keys()),
                     help="Which poses to render. 1=perched, 2=flight. Default: both.")
     ap.add_argument("--force", action="store_true", help="Re-render even if file exists")
+    ap.add_argument("--skip-metadata-sync", action="store_true",
+                    help="Do not refresh collage metadata after generating default illustration assets")
     ap.add_argument("--sleep", type=float, default=6.0,
                     help="Seconds between API calls (default 6 = headroom under free-tier RPM cap)")
     ap.add_argument("--limit", type=int, default=0, help="Cap species count for testing")
@@ -224,6 +231,8 @@ def main() -> int:
     total = len(species) * len(args.poses)
     print(f"generating up to {total} illustrations into {args.out}/")
 
+    default_out = Path(__file__).resolve().parents[1] / "assets" / "illustrations"
+    generated_slugs = set()
     done = skipped_existing = failed = 0
     first_fail = None
     for idx, (sci, com) in enumerate(species):
@@ -237,6 +246,7 @@ def main() -> int:
             try:
                 data = gen_one(gemini_key, prompt, sci, com, pose)
                 path.write_bytes(data)
+                generated_slugs.add(slug)
                 done += 1
                 print(f"  [ok]   {fname} ({len(data)//1024} KB)")
             except (urllib.error.HTTPError, urllib.error.URLError, RuntimeError) as e:
@@ -248,9 +258,24 @@ def main() -> int:
                 time.sleep(args.sleep)
 
     print(f"\ngenerated {done} · skipped {skipped_existing} · failed {failed}")
+    metadata_failed = False
+    if (done and generated_slugs and not args.skip_metadata_sync
+            and args.out.resolve() == default_out.resolve()):
+        sync_script = Path(__file__).resolve().parent / "sync_illustration_metadata.py"
+        cmd = [sys.executable, str(sync_script)]
+        for slug in sorted(generated_slugs):
+            cmd.extend(["--slug", slug])
+        print("[metadata] refreshing collage masks, mirror assets, and cache versions...")
+        try:
+            subprocess.run(cmd, check=True)
+        except (OSError, subprocess.CalledProcessError) as e:
+            metadata_failed = True
+            print(f"[metadata] failed: {e}", file=sys.stderr)
+    elif done and not args.skip_metadata_sync:
+        print("[metadata] skipped because --out is not the default illustration folder")
     if first_fail:
         print(f"first failure: {first_fail} (re-run without --force to retry only the misses)", file=sys.stderr)
-    return 0 if failed == 0 else 1
+    return 0 if failed == 0 and not metadata_failed else 1
 
 
 if __name__ == "__main__":

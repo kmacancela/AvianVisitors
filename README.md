@@ -50,6 +50,37 @@ The 36-species Central Florida pack includes, in eBird taxonomic order:
 - Prairie Warbler
 - Northern Cardinal
 
+## Adding Bird Illustrations
+
+Atlas cards can show any transparent PNG placed in
+[`avian/assets/illustrations`](avian/assets/illustrations). Collage needs
+one extra bit of data: a tiny alpha mask and scaled dimensions so the
+layout can pack birds by silhouette.
+
+If you use the repo generator, that metadata sync now runs automatically:
+
+```bash
+python3 avian/scripts/pregen.py --species "Chaetura pelagica|Chimney Swift"
+```
+
+If you add or replace PNGs by hand, run the sync helper afterward:
+
+```bash
+python3 avian/scripts/sync_illustration_metadata.py --slug chaetura-pelagica
+```
+
+The helper updates:
+
+- [`avian/frontend/dims.json`](avian/frontend/dims.json)
+- [`avian/frontend/masks.json`](avian/frontend/masks.json)
+- the baked `DIMS` / `MASKS` tables and image cache versions in
+  [`avian/frontend/apt.js`](avian/frontend/apt.js)
+- matching public mirror files under [`netlify-mirror/public`](netlify-mirror/public)
+- the `apt.js` cache tag in both local and mirror `index.html` files
+
+Use `--check` to verify the repo has no illustration PNGs missing Collage
+metadata.
+
 ## Local Pi display
 
 Install the same way as the upstream project, but point the installer at your fork once you publish it:
