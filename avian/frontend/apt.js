@@ -2668,11 +2668,14 @@
 
   function renderAdminReview() {
     var q = 'House Sparrow';
+    var minConf = 0.4;
     var maxConf = 0.7;
     adminBody.innerHTML =
       '<div class="review-toolbar">'
       + '  <label>listen for</label>'
       + '  <input id="reviewQuery" type="search" value="House Sparrow" placeholder="House Sparrow, Crow, or blank">'
+      + '  <label>min confidence</label>'
+      + '  <input id="reviewMinConf" type="number" min="0" max="1" step="0.05" value="0.40">'
       + '  <label>max confidence</label>'
       + '  <input id="reviewMaxConf" type="number" min="0" max="1" step="0.05" value="0.70">'
       + '  <button id="reviewRefresh" type="button">refresh</button>'
@@ -2681,7 +2684,8 @@
       + '<div id="reviewRows" class="review-rows">loading...</div>';
     var rowsEl = document.getElementById('reviewRows');
     var qEl = document.getElementById('reviewQuery');
-    var cEl = document.getElementById('reviewMaxConf');
+    var minEl = document.getElementById('reviewMinConf');
+    var maxEl = document.getElementById('reviewMaxConf');
     var refreshEl = document.getElementById('reviewRefresh');
 
     function rowHtml(r) {
@@ -2703,9 +2707,11 @@
 
     function load() {
       q = qEl.value.trim();
-      maxConf = Math.max(0, Math.min(1, +cEl.value || 0.7));
+      minConf = Math.max(0, Math.min(1, +minEl.value || 0.4));
+      maxConf = Math.max(minConf, Math.min(1, +maxEl.value || 0.7));
+      maxEl.value = maxConf.toFixed(2);
       rowsEl.textContent = 'loading...';
-      adminApi(apiUrl('review.php?action=candidates&q=' + encodeURIComponent(q) + '&max_conf=' + encodeURIComponent(maxConf) + '&lines=180'))
+      adminApi(apiUrl('review.php?action=candidates&q=' + encodeURIComponent(q) + '&min_conf=' + encodeURIComponent(minConf) + '&max_conf=' + encodeURIComponent(maxConf) + '&lines=180'))
         .then(function (r) { return r.text().then(function (raw) { return { status: r.status, raw: raw }; }); })
         .then(function (res) {
           var j = null;
@@ -2722,7 +2728,8 @@
 
     refreshEl.addEventListener('click', load);
     qEl.addEventListener('keydown', function (e) { if (e.key === 'Enter') load(); });
-    cEl.addEventListener('change', load);
+    minEl.addEventListener('change', load);
+    maxEl.addEventListener('change', load);
     rowsEl.addEventListener('click', function (ev) {
       var play = ev.target.closest && ev.target.closest('.review-play');
       var mark = ev.target.closest && ev.target.closest('[data-verdict]');

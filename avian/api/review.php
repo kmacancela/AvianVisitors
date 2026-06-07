@@ -107,6 +107,7 @@ function candidates(): array {
     $lines = max(80, min(1200, (int)($_GET['lines'] ?? 360)));
     $query = strtolower(trim((string)($_GET['q'] ?? '')));
     $maxConfidence = max(0, min(1, (float)($_GET['max_conf'] ?? 0.7)));
+    $minConfidence = max(0, min($maxConfidence, (float)($_GET['min_conf'] ?? 0.4)));
     $accepted = accepted_lookup();
     $log = review_shell('sudo /bin/journalctl -u birdnet_analysis --no-pager -n ' . $lines . ' -o short-iso');
     $rows = [];
@@ -124,6 +125,7 @@ function candidates(): array {
         $conf = (float)$m[4];
         $hay = strtolower($label['sci'] . ' ' . $label['com']);
         if ($query !== '' && strpos($hay, $query) === false) continue;
+        if ($conf < $minConfidence) continue;
         if ($conf > $maxConfidence) continue;
         $rows[] = [
             'id' => sha1($current . '|' . $m[1] . '|' . $m[2] . '|' . $label['sci'] . '|' . $label['com'] . '|' . $conf),
