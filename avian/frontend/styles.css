@@ -1736,6 +1736,12 @@
   }
   .review-toolbar button:hover,
   .review-mark button:hover { color: var(--ink); background: var(--paper); }
+  .review-mark button.is-selected,
+  .review-mark button[aria-pressed="true"] {
+    color: var(--ink);
+    background: var(--paper);
+    box-shadow: inset 0 0 0 1px rgba(90,122,58,.45), var(--raised);
+  }
   .review-hint {
     margin: 0 0 14px;
     font: 12.5px/1.45 ui-serif, Georgia, serif;

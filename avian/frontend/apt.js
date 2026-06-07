@@ -2698,9 +2698,9 @@
         + '</div>'
         + '<div class="review-conf">' + pct + '%</div>'
         + '<div class="review-mark">'
-        + '  <button type="button" data-verdict="correct">right</button>'
-        + '  <button type="button" data-verdict="wrong">wrong</button>'
-        + '  <button type="button" data-verdict="unsure">?</button>'
+        + '  <button type="button" data-verdict="correct" aria-pressed="false">right</button>'
+        + '  <button type="button" data-verdict="wrong" aria-pressed="false">wrong</button>'
+        + '  <button type="button" data-verdict="unsure" aria-pressed="false">?</button>'
         + '</div>'
         + '</article>';
     }
@@ -2775,6 +2775,13 @@
           .then(function (j) {
             row.setAttribute('data-verdict', j.ok ? verdict : 'error');
             mark.textContent = j.ok ? 'saved' : 'failed';
+            if (j.ok) {
+              row.querySelectorAll('.review-mark button').forEach(function (button) {
+                var selected = button === mark;
+                button.classList.toggle('is-selected', selected);
+                button.setAttribute('aria-pressed', selected ? 'true' : 'false');
+              });
+            }
           })
           .catch(function () {
             row.setAttribute('data-verdict', 'error');
