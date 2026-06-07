@@ -25,14 +25,6 @@ DEFAULT_CONFIG = {
             'min_hits': 2,
             'max_promotions_per_file': 1,
         },
-        'Corvus brachyrhynchos': {
-            'enabled': True,
-            'common': 'American Crow',
-            'min_confidence': 0.4,
-            'review_min_confidence': 0.4,
-            'min_hits': 1,
-            'max_promotions_per_file': 1,
-        },
     },
 }
 
