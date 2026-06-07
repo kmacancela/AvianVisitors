@@ -2690,7 +2690,9 @@
 
     function rowHtml(r) {
       var pct = Math.round((+r.confidence || 0) * 100);
-      return '<article class="review-row' + (r.file_exists ? '' : ' is-missing') + '" data-row="' + adminAttr(encodeURIComponent(JSON.stringify(r))) + '">'
+      var verdict = /^(correct|wrong|unsure)$/.test(r.reviewed_verdict || '') ? r.reviewed_verdict : '';
+      function pressed(name) { return verdict === name ? ' aria-pressed="true" class="is-selected"' : ' aria-pressed="false"'; }
+      return '<article class="review-row' + (r.file_exists ? '' : ' is-missing') + '" ' + (verdict ? 'data-verdict="' + adminAttr(verdict) + '" ' : '') + 'data-row="' + adminAttr(encodeURIComponent(JSON.stringify(r))) + '">'
         + '<button class="review-play" type="button" aria-label="play candidate" ' + (r.file_exists ? '' : 'disabled') + '>' + ICON_PLAY + '</button>'
         + '<div class="review-main">'
         + '  <div class="review-name">' + adminEsc(r.com || r.sci || 'unknown') + '</div>'
@@ -2698,9 +2700,9 @@
         + '</div>'
         + '<div class="review-conf">' + pct + '%</div>'
         + '<div class="review-mark">'
-        + '  <button type="button" data-verdict="correct" aria-pressed="false">right</button>'
-        + '  <button type="button" data-verdict="wrong" aria-pressed="false">wrong</button>'
-        + '  <button type="button" data-verdict="unsure" aria-pressed="false">?</button>'
+        + '  <button type="button" data-verdict="correct"' + pressed('correct') + '>right</button>'
+        + '  <button type="button" data-verdict="wrong"' + pressed('wrong') + '>wrong</button>'
+        + '  <button type="button" data-verdict="unsure"' + pressed('unsure') + '>?</button>'
         + '</div>'
         + '</article>';
     }

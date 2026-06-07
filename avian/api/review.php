@@ -99,6 +99,43 @@ function save_review_clip(array $mark): ?string {
     return null;
 }
 
+function review_key(string $file, float $start, float $end, string $sci): string {
+    return implode('|', [
+        basename($file),
+        number_format($start, 3, '.', ''),
+        number_format($end, 3, '.', ''),
+        trim($sci),
+    ]);
+}
+
+function reviewed_lookup(): array {
+    global $REVIEW_LOG, $REVIEW_FALLBACK_LOG;
+    $out = [];
+    foreach ([$REVIEW_FALLBACK_LOG, $REVIEW_LOG] as $path) {
+        if (!is_file($path)) continue;
+        $lines = @file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+        if (!is_array($lines)) continue;
+        foreach ($lines as $line) {
+            $row = json_decode($line, true);
+            if (!is_array($row)) continue;
+            $verdict = (string)($row['verdict'] ?? '');
+            if (!preg_match('/^(correct|wrong|unsure)$/', $verdict)) continue;
+            $key = review_key(
+                (string)($row['file'] ?? ''),
+                (float)($row['start_s'] ?? 0),
+                (float)($row['end_s'] ?? 0),
+                (string)($row['sci'] ?? '')
+            );
+            $out[$key] = [
+                'verdict' => $verdict,
+                'reviewed_at' => (string)($row['reviewed_at'] ?? ''),
+                'clip_path' => (string)($row['clip_path'] ?? ''),
+            ];
+        }
+    }
+    return $out;
+}
+
 function accepted_lookup(): array {
     $dbPath = dirname(__DIR__, 2) . '/scripts/birds.db';
     if (!is_file($dbPath)) return [];
@@ -122,6 +159,7 @@ function candidates(): array {
     $maxConfidence = max(0, min(1, (float)($_GET['max_conf'] ?? 0.7)));
     $minConfidence = max(0, min($maxConfidence, (float)($_GET['min_conf'] ?? 0.4)));
     $accepted = accepted_lookup();
+    $reviewed = reviewed_lookup();
     $log = review_shell('sudo /bin/journalctl -u birdnet_analysis --no-pager -n ' . $lines . ' -o short-iso');
     $rows = [];
     $current = null;
@@ -140,6 +178,8 @@ function candidates(): array {
         if ($query !== '' && strpos($hay, $query) === false) continue;
         if ($conf < $minConfidence) continue;
         if ($conf > $maxConfidence) continue;
+        $key = review_key($current, (float)$m[1], (float)$m[2], $label['sci']);
+        $saved = $reviewed[$key] ?? null;
         $rows[] = [
             'id' => sha1($current . '|' . $m[1] . '|' . $m[2] . '|' . $label['sci'] . '|' . $label['com'] . '|' . $conf),
             'file' => $current,
@@ -151,6 +191,8 @@ function candidates(): array {
             'confidence' => $conf,
             'accepted' => isset($accepted[$current]),
             'file_exists' => review_audio_file($current) !== null,
+            'reviewed_verdict' => $saved['verdict'] ?? '',
+            'reviewed_at' => $saved['reviewed_at'] ?? '',
         ];
     }
     usort($rows, function ($a, $b) {
