@@ -2670,6 +2670,9 @@
     var q = 'House Sparrow';
     var minConf = 0.4;
     var maxConf = 0.7;
+    var filter = 'unreviewed';
+    var playbackMode = 'trimmed';
+    var retentionHours = 12;
     adminBody.innerHTML =
       '<div class="review-toolbar">'
       + '  <label>listen for</label>'
@@ -2681,12 +2684,30 @@
       + '  <button id="reviewRefresh" type="button">refresh</button>'
       + '</div>'
       + '<div class="review-hint">Low-confidence candidates are not logged as detections. Play the raw chunk, then mark what you heard.</div>'
+      + '<div id="reviewBuckets" class="review-buckets">loading buckets...</div>'
+      + '<div class="review-filter-row">'
+      + '  <div class="review-filter" role="group" aria-label="review status">'
+      + '    <button type="button" data-filter="unreviewed" aria-pressed="true">unreviewed</button>'
+      + '    <button type="button" data-filter="correct" aria-pressed="false">right</button>'
+      + '    <button type="button" data-filter="wrong" aria-pressed="false">wrong</button>'
+      + '    <button type="button" data-filter="unsure" aria-pressed="false">unsure</button>'
+      + '    <button type="button" data-filter="all" aria-pressed="false">all</button>'
+      + '  </div>'
+      + '  <div class="review-playback" role="group" aria-label="playback length">'
+      + '    <span>playback</span>'
+      + '    <button type="button" data-playback="trimmed" aria-pressed="true">6s</button>'
+      + '    <button type="button" data-playback="full" aria-pressed="false">full</button>'
+      + '  </div>'
+      + '</div>'
       + '<div id="reviewRows" class="review-rows">loading...</div>';
+    var bucketsEl = document.getElementById('reviewBuckets');
     var rowsEl = document.getElementById('reviewRows');
     var qEl = document.getElementById('reviewQuery');
     var minEl = document.getElementById('reviewMinConf');
     var maxEl = document.getElementById('reviewMaxConf');
     var refreshEl = document.getElementById('reviewRefresh');
+    var filterEl = document.querySelector('.review-filter');
+    var playbackEl = document.querySelector('.review-playback');
 
     function rowHtml(r) {
       var pct = Math.round((+r.confidence || 0) * 100);
@@ -2702,18 +2723,77 @@
         + '<div class="review-mark">'
         + '  <button type="button" data-verdict="correct"' + pressed('correct') + '>right</button>'
         + '  <button type="button" data-verdict="wrong"' + pressed('wrong') + '>wrong</button>'
-        + '  <button type="button" data-verdict="unsure"' + pressed('unsure') + '>?</button>'
+        + '  <button type="button" data-verdict="unsure"' + pressed('unsure') + '>unsure</button>'
         + '</div>'
         + '</article>';
     }
 
-    function load() {
+    function bucketHtml(summary) {
+      var buckets = summary.buckets || [];
+      var maxGuess = buckets.reduce(function (m, b) { return Math.max(m, b.guesses || 0); }, 0);
+      var title = q || 'all birds';
+      var totals = summary.totals || {};
+      var suggestion = summary.suggestion || {};
+      var suggestionHtml = suggestion.message
+        ? '<div class="review-suggestion is-' + adminAttr(suggestion.status || 'neutral') + '">'
+          + '<strong>' + adminEsc(suggestion.title || 'Suggestion') + '</strong>'
+          + '<span>' + adminEsc(suggestion.message) + '</span>'
+          + '</div>'
+        : '';
+      return '<section class="review-bucket-card">'
+        + '<div class="review-bucket-head">'
+        + '  <div><strong>' + adminEsc(title) + '</strong><span>last ' + adminEsc(String(summary.hours || retentionHours)) + ' hours · all candidates</span></div>'
+        + '  <div>' + adminEsc(String(totals.guesses || 0)) + ' guesses · ' + adminEsc(String(totals.reviewed || 0)) + ' reviewed</div>'
+        + '</div>'
+        + suggestionHtml
+        + buckets.map(function (b) {
+            var width = maxGuess ? Math.max(3, Math.round((b.guesses || 0) * 100 / maxGuess)) : 0;
+            var hasReview = !!b.reviewed;
+            return '<div class="review-bucket-row">'
+              + '<span class="review-bucket-label">' + adminEsc(b.label) + '</span>'
+              + '<span class="review-bucket-bar"><i style="width:' + width + '%"></i></span>'
+              + '<span class="review-bucket-count">'
+              + (hasReview ? '<button class="review-bucket-toggle" type="button" aria-expanded="false" aria-label="show review details"></button>' : '')
+              + adminEsc(String(b.guesses || 0)) + '</span>'
+              + (hasReview ? '<div class="review-bucket-detail" hidden>'
+                + '<span>' + adminEsc(String(b.reviewed)) + ' reviewed</span>'
+                + '<span>' + adminEsc(String(b.correct)) + ' right</span>'
+                + '<span>' + adminEsc(String(b.wrong)) + ' wrong</span>'
+                + '<span>' + adminEsc(String(b.unsure)) + ' unsure</span>'
+                + '</div>' : '')
+              + '</div>';
+          }).join('')
+        + '</section>';
+    }
+
+    function readReviewControls() {
       q = qEl.value.trim();
       minConf = Math.max(0, Math.min(1, +minEl.value || 0.4));
       maxConf = Math.max(minConf, Math.min(1, +maxEl.value || 0.7));
       maxEl.value = maxConf.toFixed(2);
+    }
+
+    function loadBuckets() {
+      readReviewControls();
+      bucketsEl.textContent = 'loading buckets...';
+      adminApi(apiUrl('review.php?action=buckets&q=' + encodeURIComponent(q) + '&min_conf=' + encodeURIComponent(minConf) + '&max_conf=' + encodeURIComponent(maxConf) + '&hours=' + encodeURIComponent(retentionHours) + '&lines=1200'))
+        .then(function (r) { return r.text().then(function (raw) { return { status: r.status, raw: raw }; }); })
+        .then(function (res) {
+          var j = null;
+          try { j = JSON.parse(res.raw); } catch (e) {}
+          if (res.status !== 200 || !j || !j.summary) {
+            bucketsEl.innerHTML = '';
+            return;
+          }
+          bucketsEl.innerHTML = bucketHtml(j.summary);
+        })
+        .catch(function () { bucketsEl.innerHTML = ''; });
+    }
+
+    function loadRows() {
+      readReviewControls();
       rowsEl.textContent = 'loading...';
-      adminApi(apiUrl('review.php?action=candidates&q=' + encodeURIComponent(q) + '&min_conf=' + encodeURIComponent(minConf) + '&max_conf=' + encodeURIComponent(maxConf) + '&lines=180'))
+      adminApi(apiUrl('review.php?action=candidates&q=' + encodeURIComponent(q) + '&min_conf=' + encodeURIComponent(minConf) + '&max_conf=' + encodeURIComponent(maxConf) + '&filter=' + encodeURIComponent(filter) + '&hours=' + encodeURIComponent(retentionHours) + '&lines=180'))
         .then(function (r) { return r.text().then(function (raw) { return { status: r.status, raw: raw }; }); })
         .then(function (res) {
           var j = null;
@@ -2723,18 +2803,75 @@
             return;
           }
           var rows = j.candidates || [];
-          rowsEl.innerHTML = rows.length ? rows.map(rowHtml).join('') : '<div class="review-empty">no matching candidates in recent analysis logs</div>';
+          var emptyText = filter === 'unreviewed'
+            ? 'no playable unreviewed candidates in the last ' + retentionHours + ' hours'
+            : 'no playable ' + filter + ' candidates in the last ' + retentionHours + ' hours';
+          rowsEl.innerHTML = rows.length ? rows.map(rowHtml).join('') : '<div class="review-empty">' + adminEsc(emptyText) + '</div>';
         })
         .catch(function (e) { rowsEl.innerHTML = adminUnreachableHtml(e.message); });
+    }
+
+    function load() {
+      loadBuckets();
+      loadRows();
+    }
+
+    function reviewAudioUrl(data) {
+      var url = 'review.php?action=audio&file=' + encodeURIComponent(data.file || '');
+      if (playbackMode !== 'full') {
+        url += '&start=' + encodeURIComponent(String(+data.start_s || 0))
+          + '&end=' + encodeURIComponent(String(+data.end_s || 0))
+          + '&duration=6';
+      }
+      return apiUrl(url);
+    }
+
+    function stopReviewAudio() {
+      rowsEl.querySelectorAll('.review-play').forEach(function (b) {
+        if (b._audio) b._audio.pause();
+        b.innerHTML = ICON_PLAY;
+      });
     }
 
     refreshEl.addEventListener('click', load);
     qEl.addEventListener('keydown', function (e) { if (e.key === 'Enter') load(); });
     minEl.addEventListener('change', load);
     maxEl.addEventListener('change', load);
+    filterEl.addEventListener('click', function (ev) {
+      var button = ev.target.closest && ev.target.closest('[data-filter]');
+      if (!button) return;
+      filter = button.dataset.filter || 'unreviewed';
+      filterEl.querySelectorAll('[data-filter]').forEach(function (b) {
+        var selected = b === button;
+        b.classList.toggle('is-selected', selected);
+        b.setAttribute('aria-pressed', selected ? 'true' : 'false');
+      });
+      loadRows();
+    });
+    playbackEl.addEventListener('click', function (ev) {
+      var button = ev.target.closest && ev.target.closest('[data-playback]');
+      if (!button) return;
+      playbackMode = button.dataset.playback || 'trimmed';
+      playbackEl.querySelectorAll('[data-playback]').forEach(function (b) {
+        var selected = b === button;
+        b.classList.toggle('is-selected', selected);
+        b.setAttribute('aria-pressed', selected ? 'true' : 'false');
+      });
+      stopReviewAudio();
+    });
+    bucketsEl.addEventListener('click', function (ev) {
+      var toggle = ev.target.closest && ev.target.closest('.review-bucket-toggle');
+      if (!toggle) return;
+      var row = toggle.closest('.review-bucket-row');
+      var detail = row && row.querySelector('.review-bucket-detail');
+      var open = toggle.getAttribute('aria-expanded') === 'true';
+      toggle.setAttribute('aria-expanded', open ? 'false' : 'true');
+      if (row) row.classList.toggle('is-open', !open);
+      if (detail) detail.hidden = open;
+    });
     rowsEl.addEventListener('click', function (ev) {
       var play = ev.target.closest && ev.target.closest('.review-play');
-      var mark = ev.target.closest && ev.target.closest('[data-verdict]');
+      var mark = ev.target.closest && ev.target.closest('.review-mark [data-verdict]');
       var row = ev.target.closest && ev.target.closest('.review-row');
       if (!row) return;
       var data = {};
@@ -2745,11 +2882,8 @@
           play.innerHTML = ICON_PLAY;
           return;
         }
-        rowsEl.querySelectorAll('.review-play').forEach(function (b) {
-          if (b._audio) b._audio.pause();
-          b.innerHTML = ICON_PLAY;
-        });
-        var audio = new Audio(data.audio_url);
+        stopReviewAudio();
+        var audio = new Audio(reviewAudioUrl(data));
         play._audio = audio;
         play.innerHTML = ICON_PAUSE;
         audio.addEventListener('ended', function () { play.innerHTML = ICON_PLAY; });
@@ -2783,6 +2917,7 @@
                 button.classList.toggle('is-selected', selected);
                 button.setAttribute('aria-pressed', selected ? 'true' : 'false');
               });
+              loadBuckets();
             }
           })
           .catch(function () {

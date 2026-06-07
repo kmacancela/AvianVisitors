@@ -54,6 +54,46 @@ function review_audio_file(string $file): ?string {
     return null;
 }
 
+function review_audio_duration(string $path): ?float {
+    $cmd = 'ffprobe -v error -show_entries format=duration -of default=nk=1:nw=1 ' . escapeshellarg($path);
+    $raw = trim(review_shell($cmd));
+    if ($raw === '' || !is_numeric($raw)) return null;
+    $duration = (float)$raw;
+    return $duration > 0 ? $duration : null;
+}
+
+function review_trimmed_audio(string $path, float $start, float $end, float $duration = 6.0): ?string {
+    global $REVIEW_CLIPS_DIR, $REVIEW_FALLBACK_CLIPS_DIR;
+    if ($start < 0 || $end <= $start || $duration <= 0) return null;
+    $duration = max(1.0, min(12.0, $duration));
+    $sourceDuration = review_audio_duration($path);
+    $midpoint = ($start + $end) / 2.0;
+    $clipStart = max(0.0, $midpoint - ($duration / 2.0));
+    if ($sourceDuration !== null && $sourceDuration > $duration) {
+        $clipStart = min($clipStart, max(0.0, $sourceDuration - $duration));
+    }
+
+    $base = pathinfo($path, PATHINFO_FILENAME);
+    $name = $base . '-review-' . number_format($clipStart, 2, '.', '') . '-' . number_format($duration, 2, '.', '') . '.wav';
+    foreach ([$REVIEW_CLIPS_DIR, $REVIEW_FALLBACK_CLIPS_DIR] as $root) {
+        $dir = "$root/trimmed";
+        if (!is_dir($dir) && !@mkdir($dir, 0775, true)) {
+            continue;
+        }
+        $dest = "$dir/$name";
+        if (is_file($dest) && filesize($dest) >= 64) return $dest;
+        $cmd = 'ffmpeg -hide_banner -loglevel error -y'
+            . ' -ss ' . escapeshellarg(number_format($clipStart, 3, '.', ''))
+            . ' -t ' . escapeshellarg(number_format($duration, 3, '.', ''))
+            . ' -i ' . escapeshellarg($path)
+            . ' -acodec pcm_s16le -ar 48000 -ac 1 '
+            . escapeshellarg($dest);
+        review_shell($cmd);
+        if (is_file($dest) && filesize($dest) >= 64) return $dest;
+    }
+    return null;
+}
+
 function safe_stream_file(string $file): ?string {
     return review_audio_file($file);
 }
@@ -181,14 +221,14 @@ function accepted_lookup(): array {
     }
 }
 
-function candidates(): array {
-    $lines = max(80, min(1200, (int)($_GET['lines'] ?? 360)));
-    $query = strtolower(trim((string)($_GET['q'] ?? '')));
-    $maxConfidence = max(0, min(1, (float)($_GET['max_conf'] ?? 0.7)));
-    $minConfidence = max(0, min($maxConfidence, (float)($_GET['min_conf'] ?? 0.4)));
-    $accepted = accepted_lookup();
+function review_log_rows(int $lines, string $query, float $minConfidence, float $maxConfidence, bool $applyMinConfidence, int $hours = 0): array {
     $reviewed = reviewed_lookup();
-    $log = review_shell('sudo /bin/journalctl -u birdnet_analysis --no-pager -n ' . $lines . ' -o short-iso');
+    if ($hours > 0) {
+        $since = escapeshellarg($hours . ' hours ago');
+        $log = review_shell('sudo /bin/journalctl -u birdnet_analysis --no-pager --since ' . $since . ' -o short-iso');
+    } else {
+        $log = review_shell('sudo /bin/journalctl -u birdnet_analysis --no-pager -n ' . $lines . ' -o short-iso');
+    }
     $rows = [];
     $current = null;
     foreach (explode("\n", $log) as $line) {
@@ -205,30 +245,178 @@ function candidates(): array {
         $conf = (float)$m[4];
         $hay = strtolower($label['sci'] . ' ' . $label['com']);
         if ($query !== '' && strpos($hay, $query) === false) continue;
-        if ($conf < $minConfidence) continue;
+        if ($applyMinConfidence && $conf < $minConfidence) continue;
         if ($conf > $maxConfidence) continue;
         $key = review_key($current, (float)$m[1], (float)$m[2], $label['sci']);
         $saved = $reviewed[$key] ?? null;
         $rows[] = [
             'id' => sha1($current . '|' . $m[1] . '|' . $m[2] . '|' . $label['sci'] . '|' . $label['com'] . '|' . $conf),
             'file' => $current,
-            'audio_url' => '/avian/api/review.php?action=audio&file=' . rawurlencode($current),
+            'audio_url' => '/avian/api/review.php?action=audio&file=' . rawurlencode($current)
+                . '&start=' . rawurlencode((string)$m[1])
+                . '&end=' . rawurlencode((string)$m[2])
+                . '&duration=6',
             'start_s' => (float)$m[1],
             'end_s' => (float)$m[2],
             'sci' => $label['sci'],
             'com' => $label['com'],
             'confidence' => $conf,
-            'accepted' => isset($accepted[$current]),
             'file_exists' => review_audio_file($current) !== null,
             'reviewed_verdict' => $saved['verdict'] ?? '',
             'reviewed_at' => $saved['reviewed_at'] ?? '',
         ];
     }
+    return $rows;
+}
+
+function candidates(): array {
+    $lines = max(80, min(1200, (int)($_GET['lines'] ?? 360)));
+    $hours = max(1, min(168, (int)($_GET['hours'] ?? 12)));
+    $limit = max(1, min(2000, (int)($_GET['limit'] ?? 1000)));
+    $filter = strtolower(trim((string)($_GET['filter'] ?? 'unreviewed')));
+    if (!preg_match('/^(unreviewed|correct|wrong|unsure|all)$/', $filter)) {
+        $filter = 'unreviewed';
+    }
+    $query = strtolower(trim((string)($_GET['q'] ?? '')));
+    $maxConfidence = max(0, min(1, (float)($_GET['max_conf'] ?? 0.7)));
+    $minConfidence = max(0, min($maxConfidence, (float)($_GET['min_conf'] ?? 0.4)));
+    $accepted = accepted_lookup();
+    $rows = review_log_rows($lines, $query, $minConfidence, $maxConfidence, true, $hours);
+    $rows = array_values(array_filter($rows, function ($row) {
+        return !empty($row['file_exists']);
+    }));
+    foreach ($rows as &$row) {
+        $row['accepted'] = isset($accepted[$row['file']]);
+    }
+    unset($row);
+    $rows = array_values(array_filter($rows, function ($row) use ($filter) {
+        $verdict = (string)($row['reviewed_verdict'] ?? '');
+        if ($filter === 'all') return true;
+        if ($filter === 'unreviewed') return $verdict === '';
+        return $verdict === $filter;
+    }));
     usort($rows, function ($a, $b) {
         if ($a['file'] === $b['file']) return $a['start_s'] <=> $b['start_s'];
         return strcmp($b['file'], $a['file']);
     });
-    return array_slice($rows, 0, 250);
+    return array_slice($rows, 0, $limit);
+}
+
+function threshold_suggestion(array $buckets, float $minThreshold): array {
+    $minEvidence = 10;
+    $targetRate = 0.85;
+    $totalCorrect = (int)array_sum(array_column($buckets, 'correct'));
+    $totalWrong = (int)array_sum(array_column($buckets, 'wrong'));
+    $totalUnsure = (int)array_sum(array_column($buckets, 'unsure'));
+    $evidence = $totalCorrect + $totalWrong;
+
+    if ($evidence < $minEvidence) {
+        $needed = $minEvidence - $evidence;
+        return [
+            'status' => 'collect_more',
+            'threshold' => null,
+            'confidence_rate' => null,
+            'evidence' => $evidence,
+            'min_evidence' => $minEvidence,
+            'unsure' => $totalUnsure,
+            'title' => 'Review more clips',
+            'message' => 'Need ' . $needed . ' more right/wrong labels before suggesting a threshold.',
+        ];
+    }
+
+    $bestRate = null;
+    $bestEvidence = 0;
+    foreach ($buckets as $i => $bucket) {
+        if ((float)$bucket['min'] < $minThreshold) continue;
+        $correct = 0;
+        $wrong = 0;
+        for ($j = $i; $j < count($buckets); $j++) {
+            $correct += (int)$buckets[$j]['correct'];
+            $wrong += (int)$buckets[$j]['wrong'];
+        }
+        $thresholdEvidence = $correct + $wrong;
+        if ($thresholdEvidence < $minEvidence) continue;
+        $rate = $thresholdEvidence > 0 ? $correct / $thresholdEvidence : 0;
+        if ($bestRate === null || $rate > $bestRate) {
+            $bestRate = $rate;
+            $bestEvidence = $thresholdEvidence;
+        }
+        if ($rate >= $targetRate) {
+            $threshold = (float)$bucket['min'];
+            return [
+                'status' => 'reliable_above',
+                'threshold' => $threshold,
+                'confidence_rate' => round($rate, 3),
+                'evidence' => $thresholdEvidence,
+                'min_evidence' => $minEvidence,
+                'unsure' => $totalUnsure,
+                'title' => 'Suggested threshold',
+                'message' => 'Looks reliable at ' . number_format($threshold, 2) . '+ based on ' . $thresholdEvidence . ' right/wrong labels.',
+            ];
+        }
+    }
+
+    return [
+        'status' => 'keep_reviewing',
+        'threshold' => null,
+        'confidence_rate' => $bestRate === null ? null : round($bestRate, 3),
+        'evidence' => $evidence,
+        'min_evidence' => $minEvidence,
+        'unsure' => $totalUnsure,
+        'title' => 'Keep reviewing',
+        'message' => 'No confidence range is reliable enough yet. Best reviewed range is ' . ($bestRate === null ? 'not available' : (string)round($bestRate * 100) . '% right') . ' across ' . $bestEvidence . ' labels.',
+    ];
+}
+
+function buckets(): array {
+    $lines = max(80, min(1200, (int)($_GET['lines'] ?? 1200)));
+    $hours = max(1, min(168, (int)($_GET['hours'] ?? 12)));
+    $query = strtolower(trim((string)($_GET['q'] ?? '')));
+    $maxConfidence = max(0, min(1, (float)($_GET['max_conf'] ?? 0.7)));
+    $minConfidence = max(0, min($maxConfidence, (float)($_GET['min_conf'] ?? 0.4)));
+    $bucketSize = 0.1;
+    $bucketCount = max(1, (int)ceil($maxConfidence / $bucketSize));
+    $rows = review_log_rows($lines, $query, 0, $maxConfidence, false, $hours);
+    $buckets = [];
+    for ($i = 0; $i < $bucketCount; $i++) {
+        $lo = round($i * $bucketSize, 1);
+        $hi = round(($i + 1) * $bucketSize, 1);
+        $buckets[$i] = [
+            'label' => number_format($lo, 1) . '-' . number_format($hi, 1),
+            'min' => $lo,
+            'max' => $hi,
+            'guesses' => 0,
+            'reviewed' => 0,
+            'correct' => 0,
+            'wrong' => 0,
+            'unsure' => 0,
+        ];
+    }
+    foreach ($rows as $row) {
+        $idx = min($bucketCount - 1, max(0, (int)floor(((float)$row['confidence']) / $bucketSize)));
+        $buckets[$idx]['guesses']++;
+        $verdict = (string)($row['reviewed_verdict'] ?? '');
+        if (preg_match('/^(correct|wrong|unsure)$/', $verdict)) {
+            $buckets[$idx]['reviewed']++;
+            $buckets[$idx][$verdict]++;
+        }
+    }
+    return [
+        'query' => $query,
+        'lines' => $lines,
+        'hours' => $hours,
+        'min_confidence' => $minConfidence,
+        'bucket_size' => $bucketSize,
+        'buckets' => array_values($buckets),
+        'suggestion' => threshold_suggestion(array_values($buckets), $minConfidence),
+        'totals' => [
+            'guesses' => count($rows),
+            'reviewed' => array_sum(array_column($buckets, 'reviewed')),
+            'correct' => array_sum(array_column($buckets, 'correct')),
+            'wrong' => array_sum(array_column($buckets, 'wrong')),
+            'unsure' => array_sum(array_column($buckets, 'unsure')),
+        ],
+    ];
 }
 
 if ($action === 'audio') {
@@ -238,6 +426,15 @@ if ($action === 'audio') {
         header('Content-Type: text/plain; charset=utf-8');
         echo 'audio chunk not found';
         exit;
+    }
+    if (isset($_GET['start'], $_GET['end'])) {
+        $trimmed = review_trimmed_audio(
+            $path,
+            max(0.0, (float)$_GET['start']),
+            max(0.0, (float)$_GET['end']),
+            isset($_GET['duration']) ? (float)$_GET['duration'] : 6.0
+        );
+        if ($trimmed) $path = $trimmed;
     }
     header('Content-Type: audio/wav');
     header('Content-Length: ' . filesize($path));
@@ -285,6 +482,16 @@ if ($action === 'mark') {
 if ($action === 'candidates') {
     review_json([
         'candidates' => candidates(),
+        'retention_hours' => max(1, min(168, (int)($_GET['hours'] ?? 12))),
+        'limit' => max(1, min(2000, (int)($_GET['limit'] ?? 1000))),
+        'as_of' => date('c'),
+    ]);
+    exit;
+}
+
+if ($action === 'buckets') {
+    review_json([
+        'summary' => buckets(),
         'as_of' => date('c'),
     ]);
     exit;
