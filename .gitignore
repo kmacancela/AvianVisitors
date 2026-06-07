@@ -38,6 +38,9 @@ birdnet/
 templates/*.service
 scripts/*.txt
 scripts/*.db
+scripts/avian-verifier.json
+scripts/review-clips/
+scripts/review-labels.jsonl
 analyzing_now.txt
 apprise.txt
 body.txt

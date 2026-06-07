@@ -19,6 +19,8 @@ $BIRDSONGS_DIR = dirname(__DIR__, 3) . '/BirdSongs';
 $STREAM_DIR    = "$BIRDSONGS_DIR/StreamData";
 $REVIEW_LOG    = "$BIRDNETPI_DIR/scripts/review-labels.jsonl";
 $REVIEW_FALLBACK_LOG = '/tmp/avian-review-labels.jsonl';
+$REVIEW_CLIPS_DIR = "$BIRDNETPI_DIR/scripts/review-clips";
+$REVIEW_FALLBACK_CLIPS_DIR = '/tmp/avian-review-clips';
 $action        = $_GET['action'] ?? 'candidates';
 
 function review_json($data, int $status = 200): void {
@@ -50,6 +52,38 @@ function species_common(string $raw): array {
         return ['sci' => trim($parts[0]), 'com' => trim($parts[1])];
     }
     return ['sci' => '', 'com' => $raw];
+}
+
+function review_slug(string $value): string {
+    $value = strtolower(trim($value));
+    $value = preg_replace('/[^a-z0-9]+/', '-', $value);
+    $value = trim((string)$value, '-');
+    return $value !== '' ? $value : 'unknown';
+}
+
+function save_review_clip(array $mark): ?string {
+    global $REVIEW_CLIPS_DIR, $REVIEW_FALLBACK_CLIPS_DIR;
+    $source = safe_stream_file((string)$mark['file']);
+    if (!$source) return null;
+
+    $species = review_slug((string)($mark['sci'] ?: $mark['com']));
+    $verdict = review_slug((string)$mark['verdict']);
+    $baseName = pathinfo((string)$mark['file'], PATHINFO_FILENAME);
+    $start = number_format((float)$mark['start_s'], 1, '.', '');
+    $stop = number_format((float)$mark['end_s'], 1, '.', '');
+    $name = $baseName . '-' . $start . '-' . $stop . '-' . review_slug((string)$mark['com']) . '.wav';
+
+    foreach ([$REVIEW_CLIPS_DIR, $REVIEW_FALLBACK_CLIPS_DIR] as $root) {
+        $dir = "$root/$verdict/$species";
+        if (!is_dir($dir) && !@mkdir($dir, 0775, true)) {
+            continue;
+        }
+        $dest = "$dir/$name";
+        if (@copy($source, $dest)) {
+            return $dest;
+        }
+    }
+    return null;
 }
 
 function accepted_lookup(): array {
@@ -151,6 +185,7 @@ if ($action === 'mark') {
         review_json(['error' => 'invalid verdict'], 400);
         exit;
     }
+    $mark['clip_path'] = save_review_clip($mark);
     $path = $REVIEW_LOG;
     $ok = @file_put_contents($path, json_encode($mark) . "\n", FILE_APPEND | LOCK_EX);
     if ($ok === false) {

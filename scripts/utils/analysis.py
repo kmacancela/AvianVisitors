@@ -8,6 +8,7 @@ import numpy as np
 from .classes import Detection, ParseFileName
 from .helpers import get_settings, get_language
 from .models import get_model
+from .verifier import promote_low_confidence_candidates
 
 log = logging.getLogger(__name__)
 
@@ -179,6 +180,17 @@ def run_analysis(file):
                         confidence,
                     )
                     confident_detections.append(d)
+    confident_detections.extend(promote_low_confidence_candidates(
+        file,
+        raw_detections,
+        names,
+        predicted_species_list,
+        include_list,
+        exclude_list,
+        whitelist_list,
+        confident_detections,
+    ))
+    confident_detections.sort(key=lambda detection: (detection.start, -detection.confidence))
     return confident_detections
 
 
