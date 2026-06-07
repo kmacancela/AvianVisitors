@@ -2459,12 +2459,16 @@
   var ADMIN_TITLES = {
     settings: 'Settings',
     system: 'System',
+    review: 'Review',
     logs: 'Logs',
     tools: 'Tools',
   };
   function adminEsc(s) {
     return String(s == null ? '' : s)
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+  function adminAttr(s) {
+    return adminEsc(s).replace(/"/g, '&quot;');
   }
   function adminFmtBytes(n) {
     if (!n) return '0 B';
@@ -2494,6 +2498,7 @@
     adminSect = section;
     if (section === 'settings') renderAdminSettings();
     else if (section === 'system') renderAdminSystem();
+    else if (section === 'review') renderAdminReview();
     else if (section === 'logs') renderAdminLogs();
     else if (section === 'tools') renderAdminTools();
   }
@@ -2659,6 +2664,124 @@
           .catch(function () { b.textContent = 'err'; b.disabled = false; setTimeout(function () { b.textContent = old; }, 1500); });
       });
     });
+  }
+
+  function renderAdminReview() {
+    var q = 'House Sparrow';
+    var maxConf = 0.7;
+    adminBody.innerHTML =
+      '<div class="review-toolbar">'
+      + '  <label>listen for</label>'
+      + '  <input id="reviewQuery" type="search" value="House Sparrow" placeholder="House Sparrow, Crow, or blank">'
+      + '  <label>max confidence</label>'
+      + '  <input id="reviewMaxConf" type="number" min="0" max="1" step="0.05" value="0.70">'
+      + '  <button id="reviewRefresh" type="button">refresh</button>'
+      + '</div>'
+      + '<div class="review-hint">Low-confidence candidates are not logged as detections. Play the raw chunk, then mark what you heard.</div>'
+      + '<div id="reviewRows" class="review-rows">loading...</div>';
+    var rowsEl = document.getElementById('reviewRows');
+    var qEl = document.getElementById('reviewQuery');
+    var cEl = document.getElementById('reviewMaxConf');
+    var refreshEl = document.getElementById('reviewRefresh');
+
+    function rowHtml(r) {
+      var pct = Math.round((+r.confidence || 0) * 100);
+      return '<article class="review-row' + (r.file_exists ? '' : ' is-missing') + '" data-row="' + adminAttr(encodeURIComponent(JSON.stringify(r))) + '">'
+        + '<button class="review-play" type="button" aria-label="play candidate" ' + (r.file_exists ? '' : 'disabled') + '>' + ICON_PLAY + '</button>'
+        + '<div class="review-main">'
+        + '  <div class="review-name">' + adminEsc(r.com || r.sci || 'unknown') + '</div>'
+        + '  <div class="review-file">' + adminEsc(r.file || '') + ' · ' + adminEsc((+r.start_s).toFixed(1)) + '-' + adminEsc((+r.end_s).toFixed(1)) + 's' + (r.file_exists ? '' : ' · chunk rotated out') + '</div>'
+        + '</div>'
+        + '<div class="review-conf">' + pct + '%</div>'
+        + '<div class="review-mark">'
+        + '  <button type="button" data-verdict="correct">right</button>'
+        + '  <button type="button" data-verdict="wrong">wrong</button>'
+        + '  <button type="button" data-verdict="unsure">?</button>'
+        + '</div>'
+        + '</article>';
+    }
+
+    function load() {
+      q = qEl.value.trim();
+      maxConf = Math.max(0, Math.min(1, +cEl.value || 0.7));
+      rowsEl.textContent = 'loading...';
+      adminApi(apiUrl('review.php?action=candidates&q=' + encodeURIComponent(q) + '&max_conf=' + encodeURIComponent(maxConf) + '&lines=180'))
+        .then(function (r) { return r.text().then(function (raw) { return { status: r.status, raw: raw }; }); })
+        .then(function (res) {
+          var j = null;
+          try { j = JSON.parse(res.raw); } catch (e) {}
+          if (res.status !== 200 || !j) {
+            rowsEl.innerHTML = adminUnreachableHtml(j && j.error ? j.error : 'review endpoint unavailable');
+            return;
+          }
+          var rows = j.candidates || [];
+          rowsEl.innerHTML = rows.length ? rows.map(rowHtml).join('') : '<div class="review-empty">no matching candidates in recent analysis logs</div>';
+        })
+        .catch(function (e) { rowsEl.innerHTML = adminUnreachableHtml(e.message); });
+    }
+
+    refreshEl.addEventListener('click', load);
+    qEl.addEventListener('keydown', function (e) { if (e.key === 'Enter') load(); });
+    cEl.addEventListener('change', load);
+    rowsEl.addEventListener('click', function (ev) {
+      var play = ev.target.closest && ev.target.closest('.review-play');
+      var mark = ev.target.closest && ev.target.closest('[data-verdict]');
+      var row = ev.target.closest && ev.target.closest('.review-row');
+      if (!row) return;
+      var data = {};
+      try { data = JSON.parse(decodeURIComponent(row.getAttribute('data-row') || '%7B%7D')); } catch (e) {}
+      if (play) {
+        if (play._audio && !play._audio.paused) {
+          play._audio.pause();
+          play.innerHTML = ICON_PLAY;
+          return;
+        }
+        rowsEl.querySelectorAll('.review-play').forEach(function (b) {
+          if (b._audio) b._audio.pause();
+          b.innerHTML = ICON_PLAY;
+        });
+        var audio = new Audio(data.audio_url);
+        play._audio = audio;
+        play.innerHTML = ICON_PAUSE;
+        audio.addEventListener('ended', function () { play.innerHTML = ICON_PLAY; });
+        audio.addEventListener('error', function () { play.innerHTML = ICON_PLAY; row.classList.add('is-error'); });
+        audio.play().catch(function () { play.innerHTML = ICON_PLAY; });
+      } else if (mark) {
+        mark.disabled = true;
+        var oldText = mark.textContent;
+        mark.textContent = '...';
+        var verdict = mark.dataset.verdict;
+        fetch(apiUrl('review.php?action=mark'), {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            file: data.file,
+            start_s: data.start_s,
+            end_s: data.end_s,
+            sci: data.sci,
+            com: data.com,
+            confidence: data.confidence,
+            verdict: verdict,
+          }),
+        }).then(function (r) { return r.json(); })
+          .then(function (j) {
+            row.setAttribute('data-verdict', j.ok ? verdict : 'error');
+            mark.textContent = j.ok ? 'saved' : 'failed';
+          })
+          .catch(function () {
+            row.setAttribute('data-verdict', 'error');
+            mark.textContent = 'failed';
+          })
+          .finally(function () {
+            setTimeout(function () {
+              mark.disabled = false;
+              mark.textContent = oldText;
+            }, 1100);
+          });
+      }
+    });
+    load();
   }
 
   function renderAdminLogs() {

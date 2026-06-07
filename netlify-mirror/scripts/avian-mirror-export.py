@@ -306,7 +306,7 @@ def post_audio_uploads(url, token, uploads, cache_path):
 
 def main():
     parser = argparse.ArgumentParser(description="Export BirdNET-Pi detections to the Avian Visitors public mirror.")
-    parser.add_argument("--db", default=DB_PATH)
+    parser.add_argument("--db", default=os.environ.get("AVIAN_MIRROR_DB", DB_PATH))
     parser.add_argument("--audio-root", default=os.environ.get("AVIAN_MIRROR_AUDIO_ROOT", AUDIO_ROOT))
     parser.add_argument("--audio-cache", default=os.environ.get("AVIAN_MIRROR_AUDIO_CACHE", AUDIO_CACHE))
     parser.add_argument("--out")

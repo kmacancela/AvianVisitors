@@ -1,9 +1,17 @@
 #!/usr/bin/env bash
 set -u
 
-DB="${AVIAN_MIRROR_DB:-/home/birdnet/BirdNET-Pi/scripts/birds.db}"
-ENV_FILE="${AVIAN_MIRROR_ENV:-/home/birdnet/.avian-visitors-mirror.env}"
-EXPORT="${AVIAN_MIRROR_EXPORT:-/home/birdnet/BirdNET-Pi/scripts/avian-mirror-export.py}"
+ENV_FILE="${AVIAN_MIRROR_ENV:-${HOME}/.avian-visitors-mirror.env}"
+
+if [ -r "$ENV_FILE" ]; then
+  set -a
+  # shellcheck disable=SC1090
+  . "$ENV_FILE"
+  set +a
+fi
+
+DB="${AVIAN_MIRROR_DB:-${HOME}/BirdNET-Pi/scripts/birds.db}"
+EXPORT="${AVIAN_MIRROR_EXPORT:-${HOME}/BirdNET-Pi/scripts/avian-mirror-export.py}"
 OUT="${AVIAN_MIRROR_OUT:-/tmp/avian-visitors-last-snapshot.json}"
 DEBOUNCE_SECONDS="${AVIAN_MIRROR_DEBOUNCE_SECONDS:-20}"
 LOCK_FILE="${AVIAN_MIRROR_LOCK:-/tmp/avian-visitors-mirror-push.lock}"

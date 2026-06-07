@@ -57,3 +57,6 @@ whitelist_species_list.txt
 avian/assets/references/
 # Superseded assets retained locally
 avian/assets/_legacy/
+
+# Local Netlify folder
+.netlify
