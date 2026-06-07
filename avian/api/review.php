@@ -67,6 +67,34 @@ function species_common(string $raw): array {
     return ['sci' => '', 'com' => $raw];
 }
 
+function review_noise_label(array $label): bool {
+    $text = strtolower($label['sci'] . ' ' . $label['com']);
+    $tokens = preg_split('/[^a-z0-9]+/', $text, -1, PREG_SPLIT_NO_EMPTY);
+    $noise = [
+        'human' => true,
+        'speech' => true,
+        'music' => true,
+        'engine' => true,
+        'machine' => true,
+        'machinery' => true,
+        'motor' => true,
+        'vehicle' => true,
+        'car' => true,
+        'truck' => true,
+        'bus' => true,
+        'motorcycle' => true,
+        'aircraft' => true,
+        'airplane' => true,
+        'helicopter' => true,
+        'train' => true,
+        'siren' => true,
+    ];
+    foreach ($tokens as $token) {
+        if (isset($noise[$token])) return true;
+    }
+    return false;
+}
+
 function review_slug(string $value): string {
     $value = strtolower(trim($value));
     $value = preg_replace('/[^a-z0-9]+/', '-', $value);
@@ -173,6 +201,7 @@ function candidates(): array {
             continue;
         }
         $label = species_common($m[3]);
+        if (review_noise_label($label)) continue;
         $conf = (float)$m[4];
         $hay = strtolower($label['sci'] . ' ' . $label['com']);
         if ($query !== '' && strpos($hay, $query) === false) continue;

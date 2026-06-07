@@ -2673,7 +2673,7 @@
     adminBody.innerHTML =
       '<div class="review-toolbar">'
       + '  <label>listen for</label>'
-      + '  <input id="reviewQuery" type="search" value="House Sparrow" placeholder="House Sparrow">'
+      + '  <input id="reviewQuery" type="search" value="House Sparrow" placeholder="House Sparrow or blank for all birds">'
       + '  <label>min confidence</label>'
       + '  <input id="reviewMinConf" type="number" min="0" max="1" step="0.05" value="0.40">'
       + '  <label>max confidence</label>'
