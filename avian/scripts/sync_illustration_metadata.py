@@ -172,8 +172,21 @@ def update_apt_files(dims: dict, masks: dict, bump_asset_versions: bool) -> bool
     return changed
 
 
+def read_numeric_version(text: str, name: str) -> int:
+    match = re.search(rf"var {re.escape(name)} = '([0-9]+)';", text)
+    if not match:
+        raise ValueError(f"could not find numeric {name} in apt.js")
+    return int(match.group(1))
+
+
 def bump_index_cache_tag() -> bool:
-    tag = f"{date.today():%Y%m%d}-illustration-metadata-v1"
+    apt_text = (FRONTEND / "apt.js").read_text()
+    sketch_version = read_numeric_version(apt_text, "SKETCH_VERSION")
+    img_version = read_numeric_version(apt_text, "IMG_VERSION")
+    tag = (
+        f"{date.today():%Y%m%d}-illustration-metadata-"
+        f"s{sketch_version}-i{img_version}"
+    )
     changed = False
     for path in INDEX_FILES:
         if not path.exists():
@@ -196,7 +209,14 @@ def resolve_slugs(requested: list[str], include_all: bool) -> list[str]:
         return all_slugs
     dims = read_json(FRONTEND / "dims.json")
     masks = read_json(FRONTEND / "masks.json")
-    return [slug for slug in all_slugs if slug not in dims or slug not in masks]
+    missing = []
+    for slug in all_slugs:
+        for path in illustration_files_for_slug(slug):
+            key = path.stem
+            if key not in dims or key not in masks:
+                missing.append(slug)
+                break
+    return missing
 
 
 def main() -> int:
@@ -232,18 +252,22 @@ def main() -> int:
         if not primary.exists():
             missing.append(str(primary))
             continue
-        new_dims, new_mask = build_metadata(primary)
-        if dims.get(slug) != new_dims:
-            metadata_changed = True
-            if not args.check:
-                dims[slug] = new_dims
-        if masks.get(slug) != new_mask:
-            metadata_changed = True
-            if not args.check:
-                masks[slug] = new_mask
+
+        files = illustration_files_for_slug(slug)
+        for src in files:
+            key = src.stem
+            new_dims, new_mask = build_metadata(src)
+            if dims.get(key) != new_dims:
+                metadata_changed = True
+                if not args.check:
+                    dims[key] = new_dims
+            if masks.get(key) != new_mask:
+                metadata_changed = True
+                if not args.check:
+                    masks[key] = new_mask
 
         if not args.no_mirror_copy:
-            for src in illustration_files_for_slug(slug):
+            for src in files:
                 dst = MIRROR_ILLUSTRATIONS / src.name
                 if args.check:
                     if not dst.exists() or not filecmp.cmp(src, dst, shallow=False):
