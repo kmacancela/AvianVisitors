@@ -1417,10 +1417,7 @@
         ? (publicAudio ? apiUrl('recording.php?sci=' + encodeURIComponent(s.sci) + '&v=' + audioVersion) : '')
         : apiUrl('recording.php?sci=' + encodeURIComponent(s.sci));
       var spectroSrc = publicMirror ? '' : apiUrl('spectrogram.php?sci=' + encodeURIComponent(s.sci));
-      var playChip = audioSrc ?
-        '<button type="button" class="chip play" data-action="play" aria-label="play recording">'
-          + ICON_PLAY + '<span>play</span>'
-        + '</button>' : '';
+      var playChip = '';
       // The "all time" window makes the windowed count identical to the
       // all-time count - collapse to a single stat rather than print the
       // same number twice. Otherwise label the count with its span.
