@@ -15,6 +15,39 @@
   var API_BASE = location.pathname.indexOf('/avian/frontend/') !== -1 ? '/avian/api/' : './avian/api/';
   var SITE_TIME_ZONE = 'America/New_York';
   var SITE_TIME_LABEL = 'ET';
+  var WEATHER_URL = 'https://api.open-meteo.com/v1/forecast?latitude=40.7433&longitude=-73.9239&current=temperature_2m,weather_code,wind_speed_10m&temperature_unit=fahrenheit&wind_speed_unit=mph&timezone=America%2FNew_York';
+  var WEATHER_REFRESH_MS = 10 * 60 * 1000;
+  var WEATHER_LABELS = {
+    0: 'clear',
+    1: 'mostly clear',
+    2: 'partly cloudy',
+    3: 'cloudy',
+    45: 'fog',
+    48: 'fog',
+    51: 'drizzle',
+    53: 'drizzle',
+    55: 'drizzle',
+    56: 'freezing drizzle',
+    57: 'freezing drizzle',
+    61: 'rain',
+    63: 'rain',
+    65: 'rain',
+    66: 'freezing rain',
+    67: 'freezing rain',
+    71: 'snow',
+    73: 'snow',
+    75: 'snow',
+    77: 'snow grains',
+    80: 'showers',
+    81: 'showers',
+    82: 'showers',
+    85: 'snow showers',
+    86: 'snow showers',
+    95: 'thunderstorm',
+    96: 'thunderstorm',
+    99: 'thunderstorm'
+  };
+  var aboutWeather = { text: '', loadedAt: 0, inFlight: null, timer: null };
 
   function canShowCardAudio() {
     return !publicMirror && privateAudioUnlocked;
@@ -3192,10 +3225,76 @@
     var m = location.hash.match(/^#admin=([a-z]+)/);
     return m ? m[1] : null;
   }
+  function weatherLabel(code) {
+    return WEATHER_LABELS[Number(code)] || 'weather';
+  }
+  function setAboutWeatherText(text) {
+    var el = document.getElementById('aboutWeatherText');
+    if (el) el.textContent = text;
+  }
+  function formatAboutWeather(payload) {
+    var current = payload && payload.current ? payload.current : {};
+    var temp = Math.round(Number(current.temperature_2m));
+    var wind = Math.round(Number(current.wind_speed_10m));
+    if (!isFinite(temp) || !isFinite(wind)) return null;
+    return temp + '\u00b0F \u00b7 ' + weatherLabel(current.weather_code) + ' \u00b7 wind ' + wind + ' mph';
+  }
+  function updateAboutWeather(force) {
+    var now = Date.now();
+    if (!force && aboutWeather.text && now - aboutWeather.loadedAt < WEATHER_REFRESH_MS) {
+      setAboutWeatherText(aboutWeather.text);
+      return Promise.resolve(aboutWeather.text);
+    }
+    if (aboutWeather.inFlight) return aboutWeather.inFlight;
+    if (!window.fetch) {
+      setAboutWeatherText(aboutWeather.text || 'weather unavailable');
+      return Promise.resolve(null);
+    }
+    if (!aboutWeather.text) setAboutWeatherText('checking the weather...');
+    aboutWeather.inFlight = fetch(WEATHER_URL, { cache: 'no-store' })
+      .then(function (res) {
+        if (!res.ok) throw new Error('weather unavailable');
+        return res.json();
+      })
+      .then(function (payload) {
+        var text = formatAboutWeather(payload);
+        if (!text) throw new Error('weather unavailable');
+        aboutWeather.text = text;
+        aboutWeather.loadedAt = Date.now();
+        setAboutWeatherText(text);
+        return text;
+      })
+      .catch(function () {
+        setAboutWeatherText(aboutWeather.text || 'weather unavailable');
+        return null;
+      })
+      .then(function (value) {
+        aboutWeather.inFlight = null;
+        return value;
+      });
+    return aboutWeather.inFlight;
+  }
+  function startAboutWeather() {
+    updateAboutWeather(false);
+    if (!aboutWeather.timer) {
+      aboutWeather.timer = setInterval(function () { updateAboutWeather(true); }, WEATHER_REFRESH_MS);
+    }
+  }
+  function stopAboutWeather() {
+    if (!aboutWeather.timer) return;
+    clearInterval(aboutWeather.timer);
+    aboutWeather.timer = null;
+  }
   // #about - brief explainer popup; reached via /about (302 -> /#about)
   // or the masthead eyebrow. aria-hidden drives the CSS fade/slide.
-  function openAbout()  { document.getElementById('about-modal').setAttribute('aria-hidden', 'false'); }
-  function closeAbout() { document.getElementById('about-modal').setAttribute('aria-hidden', 'true'); }
+  function openAbout()  {
+    document.getElementById('about-modal').setAttribute('aria-hidden', 'false');
+    startAboutWeather();
+  }
+  function closeAbout() {
+    document.getElementById('about-modal').setAttribute('aria-hidden', 'true');
+    stopAboutWeather();
+  }
   function syncRouter() {
     window.__lastHashchange = Date.now();
     var sci = readHash();
