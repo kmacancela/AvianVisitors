@@ -9,6 +9,16 @@
 // Basic auth header here so the drawer can unlock without extra Caddy rules.
 
 declare(strict_types=1);
+
+session_name('avian_session');
+session_set_cookie_params([
+    'lifetime' => 60 * 60 * 24 * 30,
+    'path' => '/',
+    'httponly' => true,
+    'samesite' => 'Lax',
+]);
+session_start();
+
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
 
@@ -47,9 +57,14 @@ function av_unauthorized(): void {
 
 $expectedPassword = av_config_password();
 if ($expectedPassword !== '') {
-    [$user, $password] = av_basic_credentials();
-    if ($user !== 'birdnet' || !hash_equals($expectedPassword, $password)) {
-        av_unauthorized();
+    $passwordHash = hash('sha256', $expectedPassword);
+    $sessionOk = (($_SESSION['av_password_hash'] ?? '') === $passwordHash);
+    if (!$sessionOk) {
+        [$user, $password] = av_basic_credentials();
+        if ($user !== 'birdnet' || !hash_equals($expectedPassword, $password)) {
+            av_unauthorized();
+        }
+        $_SESSION['av_password_hash'] = $passwordHash;
     }
 }
 
