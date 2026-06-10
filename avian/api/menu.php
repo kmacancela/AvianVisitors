@@ -22,11 +22,12 @@ session_start();
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
 
-function av_config_password(): string {
+function av_config_value(string $name): string {
     $path = '/etc/birdnet/birdnet.conf';
     if (!is_readable($path)) return '';
     $raw = (string)file_get_contents($path);
-    if (!preg_match('/^CADDY_PWD=(.*)$/m', $raw, $m)) return '';
+    $pattern = '/^' . preg_quote($name, '/') . '=(.*)$/m';
+    if (!preg_match($pattern, $raw, $m)) return '';
     $value = trim($m[1]);
     if (
         strlen($value) >= 2 &&
@@ -36,6 +37,19 @@ function av_config_password(): string {
         $value = substr($value, 1, -1);
     }
     return $value;
+}
+
+function av_config_password(): string {
+    return av_config_value('CADDY_PWD');
+}
+
+function av_is_developer_client(): bool {
+    $allowed = av_config_value('AVIAN_DEV_IPS');
+    if ($allowed === '') return false;
+    $client = (string)($_SERVER['REMOTE_ADDR'] ?? '');
+    if ($client === '') return false;
+    $ips = preg_split('/[\s,]+/', $allowed, -1, PREG_SPLIT_NO_EMPTY);
+    return in_array($client, $ips, true);
 }
 
 function av_basic_credentials(): array {
@@ -56,7 +70,7 @@ function av_unauthorized(): void {
 }
 
 $expectedPassword = av_config_password();
-if ($expectedPassword !== '') {
+if ($expectedPassword !== '' && !av_is_developer_client()) {
     $passwordHash = hash('sha256', $expectedPassword);
     $sessionOk = (($_SESSION['av_password_hash'] ?? '') === $passwordHash);
     if (!$sessionOk) {
