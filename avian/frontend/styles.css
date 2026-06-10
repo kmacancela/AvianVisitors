@@ -2568,16 +2568,9 @@
   .bird-card[data-playing="true"] .spectro-wrap::before { --playhead: 0.6; }
 
 /* ============ AvianVisitors mode toggle ============
- * Default install (body.av-local): hide the lock-row, show drawer items
- * directly when the menu opens. The PHP shim at /avian/api/menu.php
- * returns items immediately with no auth, so the live JS skips the lock
- * flow entirely.
- *
- * Forwarded install (body.av-forwarded): show the lock row so users
- * type the basic-auth password before items unlock. Pair with
- * AV_REQUIRE_AUTH=1 in php-fpm env + Caddy basic_auth on /avian/api/.
- * See avian/forwarding/. */
-body.av-local #dd-locked { display: none; }
+ * The drawer starts locked. If /avian/api/menu.php returns menu items,
+ * JS hides #dd-locked and shows #dd-items. If CADDY_PWD is set on the Pi,
+ * menu.php returns 401 until the user enters the shared birdnet password. */
 
 body.av-public .menu-btn,
 body.av-public #menu-dd,
@@ -2588,4 +2581,3 @@ body.av-public .return-to-atlas {
 body.av-public .modal-recordings {
   opacity: 0.82;
 }
-body.av-local #dd-items  { display: block; }

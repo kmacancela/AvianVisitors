@@ -11,9 +11,21 @@
   // versioned URL is the only reliable way to invalidate everywhere.)
   var IMG_VERSION = '18'; // Northern Cardinal flight illustration.
   var publicMirror = document.body.classList.contains('av-public');
+  var privateAudioUnlocked = false;
   var API_BASE = location.pathname.indexOf('/avian/frontend/') !== -1 ? '/avian/api/' : './avian/api/';
   var SITE_TIME_ZONE = 'America/New_York';
   var SITE_TIME_LABEL = 'ET';
+
+  function canShowCardAudio() {
+    return !publicMirror && privateAudioUnlocked;
+  }
+
+  function unlockPrivateAudio() {
+    if (privateAudioUnlocked) return;
+    privateAudioUnlocked = true;
+    document.body.classList.add('av-unlocked');
+    if (DATA && DATA.lifelist) renderAtlas();
+  }
 
   function apiUrl(path) {
     return API_BASE + String(path).replace(/^\/+/, '');
@@ -1417,7 +1429,9 @@
         ? (publicAudio ? apiUrl('recording.php?sci=' + encodeURIComponent(s.sci) + '&v=' + audioVersion) : '')
         : apiUrl('recording.php?sci=' + encodeURIComponent(s.sci));
       var spectroSrc = publicMirror ? '' : apiUrl('spectrogram.php?sci=' + encodeURIComponent(s.sci));
-      var playChip = '';
+      var playChip = canShowCardAudio()
+        ? '<button class="chip play" type="button" data-action="play" data-active="false" data-state="idle" aria-label="play recording">' + ICON_PLAY + '<span>play</span></button>'
+        : '';
       // The "all time" window makes the windowed count identical to the
       // all-time count - collapse to a single stat rather than print the
       // same number twice. Otherwise label the count with its span.
@@ -1726,6 +1740,7 @@
   //     opens externally; rebuilding all of these in our design is on
   //     the follow-up list)
   function renderMenu(menu) {
+    unlockPrivateAudio();
     locked.style.display = 'none';
     items.classList.add('show');
     var liveAudioIcon = '<svg viewBox="0 0 12 12" fill="currentColor"><path d="M3 2 L10 6 L3 10 Z"/></svg>';

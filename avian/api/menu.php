@@ -4,23 +4,54 @@
 // Returns the list of links shown in the side drawer when a user clicks
 // the menu button. The live JS expects {items: [{label, href, native}]}.
 //
-// Default LAN deploy: returns items immediately, no auth.
-// Forwarded deploy:  set AV_REQUIRE_AUTH=1 in /etc/avian/env (or in your
-// php-fpm pool's env block) AND configure Caddy basic_auth on /avian/api/
-// to force the lock screen.
+// Default LAN deploy with blank CADDY_PWD: returns items immediately.
+// If /etc/birdnet/birdnet.conf has CADDY_PWD set, validate the frontend's
+// Basic auth header here so the drawer can unlock without extra Caddy rules.
 
 declare(strict_types=1);
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
 
-// If forwarded mode is on AND no Basic-auth header arrived, 401 so the
-// frontend shows the lock screen. The actual credential check is done
-// by Caddy (basic_auth directive in forwarding/caddy-auth.caddy); this
-// PHP only checks that *some* Authorization header reached us.
-if (getenv('AV_REQUIRE_AUTH') === '1' && empty($_SERVER['HTTP_AUTHORIZATION'])) {
+function av_config_password(): string {
+    $path = '/etc/birdnet/birdnet.conf';
+    if (!is_readable($path)) return '';
+    $raw = (string)file_get_contents($path);
+    if (!preg_match('/^CADDY_PWD=(.*)$/m', $raw, $m)) return '';
+    $value = trim($m[1]);
+    if (
+        strlen($value) >= 2 &&
+        (($value[0] === '"' && substr($value, -1) === '"') ||
+         ($value[0] === "'" && substr($value, -1) === "'"))
+    ) {
+        $value = substr($value, 1, -1);
+    }
+    return $value;
+}
+
+function av_basic_credentials(): array {
+    if (!empty($_SERVER['PHP_AUTH_USER']) || !empty($_SERVER['PHP_AUTH_PW'])) {
+        return [(string)($_SERVER['PHP_AUTH_USER'] ?? ''), (string)($_SERVER['PHP_AUTH_PW'] ?? '')];
+    }
+    $auth = (string)($_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '');
+    if (!preg_match('/^Basic\s+(.+)$/i', $auth, $m)) return ['', ''];
+    $decoded = base64_decode($m[1], true);
+    if ($decoded === false || strpos($decoded, ':') === false) return ['', ''];
+    return explode(':', $decoded, 2);
+}
+
+function av_unauthorized(): void {
+    header('WWW-Authenticate: Basic realm="AvianVisitors"');
     http_response_code(401);
     echo json_encode(['error' => 'unauthorized']);
     exit;
+}
+
+$expectedPassword = av_config_password();
+if ($expectedPassword !== '') {
+    [$user, $password] = av_basic_credentials();
+    if ($user !== 'birdnet' || !hash_equals($expectedPassword, $password)) {
+        av_unauthorized();
+    }
 }
 
 // All four items are in-app overlays. `native: true` tells the FE to
