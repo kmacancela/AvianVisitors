@@ -1,5 +1,6 @@
 import type { Config } from "@netlify/functions";
 import { getDeployStore, getStore } from "@netlify/blobs";
+import { createHash, timingSafeEqual } from "node:crypto";
 
 type Snapshot = Record<string, any>;
 
@@ -9,6 +10,7 @@ declare const Netlify: {
 
 const AUDIO_KEY_RE = /^public-audio\/[a-z0-9-]+\/[a-f0-9]{24}\.mp3$/;
 const SCI_RE = /^[A-Za-z]{2,40}(?:[ ][a-z]{2,40}){1,3}$/;
+const COOKIE = "avian_audio_session";
 
 function store() {
   if (Netlify.context?.deploy?.context === "production") {
@@ -48,10 +50,37 @@ function text(message: string, status = 404) {
   });
 }
 
+function password() {
+  return process.env.AVIAN_PUBLIC_PASSWORD || "";
+}
+
+function token() {
+  return createHash("sha256").update(`avian-public-audio:${password()}`).digest("hex");
+}
+
+function safeEqual(a: string, b: string) {
+  const aa = Buffer.from(a);
+  const bb = Buffer.from(b);
+  return aa.length === bb.length && timingSafeEqual(aa, bb);
+}
+
+function cookie(req: Request) {
+  const raw = req.headers.get("cookie") || "";
+  const found = raw.split(/;\s*/).find((part) => part.startsWith(`${COOKIE}=`));
+  return found ? decodeURIComponent(found.slice(COOKIE.length + 1)) : "";
+}
+
+function hasAudioSession(req: Request) {
+  const expected = password();
+  return !!expected && safeEqual(cookie(req), token());
+}
+
 export default async (req: Request) => {
   if (req.method !== "GET" && req.method !== "HEAD") {
     return text("method not allowed", 405);
   }
+
+  if (!hasAudioSession(req)) return text("unauthorized", 401);
 
   const url = new URL(req.url);
   const sci = (url.searchParams.get("sci") || "").trim();

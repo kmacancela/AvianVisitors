@@ -11,9 +11,21 @@
   // versioned URL is the only reliable way to invalidate everywhere.)
   var IMG_VERSION = '18'; // Northern Cardinal flight illustration.
   var publicMirror = document.body.classList.contains('av-public');
+  var privateAudioUnlocked = false;
   var API_BASE = location.pathname.indexOf('/avian/frontend/') !== -1 ? '/avian/api/' : './avian/api/';
   var SITE_TIME_ZONE = 'America/New_York';
   var SITE_TIME_LABEL = 'ET';
+
+  function canShowCardAudio() {
+    return privateAudioUnlocked;
+  }
+
+  function unlockPrivateAudio() {
+    if (privateAudioUnlocked) return;
+    privateAudioUnlocked = true;
+    document.body.classList.add('av-unlocked');
+    if (DATA && DATA.lifelist) renderAtlas();
+  }
 
   function apiUrl(path) {
     return API_BASE + String(path).replace(/^\/+/, '');
@@ -1417,7 +1429,9 @@
         ? (publicAudio ? apiUrl('recording.php?sci=' + encodeURIComponent(s.sci) + '&v=' + audioVersion) : '')
         : apiUrl('recording.php?sci=' + encodeURIComponent(s.sci));
       var spectroSrc = publicMirror ? '' : apiUrl('spectrogram.php?sci=' + encodeURIComponent(s.sci));
-      var playChip = '';
+      var playChip = canShowCardAudio() && audioSrc
+        ? '<button class="chip play" type="button" data-action="play" data-active="false" data-state="idle" aria-label="play recording">' + ICON_PLAY + '<span>play</span></button>'
+        : '';
       // The "all time" window makes the windowed count identical to the
       // all-time count - collapse to a single stat rather than print the
       // same number twice. Otherwise label the count with its span.
@@ -1662,23 +1676,26 @@
   var locked  = document.getElementById('dd-locked');
   var items   = document.getElementById('dd-items');
   var lockHint= document.getElementById('lockHint');
-  function openDd()  { dd.classList.add('open'); dd.setAttribute('aria-hidden','false'); setTimeout(function () { document.getElementById('lockPass').focus(); }, 100); }
+  function openDd()  {
+    dd.classList.add('open');
+    dd.setAttribute('aria-hidden','false');
+    setTimeout(function () {
+      if (!privateAudioUnlocked) document.getElementById('lockPass').focus();
+    }, 100);
+  }
   function closeDd() { dd.classList.remove('open'); dd.setAttribute('aria-hidden','true'); }
   function toggleDd(){ dd.classList.contains('open') ? closeDd() : openDd(); }
-  if (!publicMirror && dd && menuBtn) {
+  if (dd && menuBtn) {
     menuBtn.addEventListener('click', function (e) { e.stopPropagation(); toggleDd(); });
     document.addEventListener('click', function (e) { if (!dd.contains(e.target) && e.target !== menuBtn) closeDd(); });
     document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeDd(); });
   }
 
-  // Probe menu.php with no Authorization header. On a LAN deploy
-  // (AV_REQUIRE_AUTH=0) it returns 200 immediately so the drawer
-  // renders directly. On a forwarded deploy with Caddy basic_auth in
-  // front, Caddy will already have validated credentials before this
-  // request reaches PHP - so a 200 here means we're authed, a 401
-  // means Caddy rejected and we need the lock-screen flow.
+  // Probe menu.php with no Authorization header. The public mirror returns
+  // a quiet 401 until the password succeeds; after that the session cookie
+  // makes this return 200 and the top-right button becomes "menu".
   function tryAutoUnlock() {
-    if (publicMirror || !dd || !items) return;
+    if (!dd || !items) return;
     fetch(apiUrl('menu.php'), { credentials: 'same-origin' }).then(function (r) {
       if (r.status === 200) {
         return r.json().then(function (j) { renderMenu(j.items || []); });
@@ -1726,8 +1743,20 @@
   //     opens externally; rebuilding all of these in our design is on
   //     the follow-up list)
   function renderMenu(menu) {
+    unlockPrivateAudio();
+    if (menuBtn) menuBtn.textContent = 'menu';
     locked.style.display = 'none';
     items.classList.add('show');
+    if (publicMirror) {
+      items.innerHTML =
+        '<div class="menu-section">'
+        + '<h3>private audio</h3>'
+        + '<div class="menu-row">'
+        + '  <div><span class="label">bird calls unlocked</span><span class="hint">play buttons are visible in atlas</span></div>'
+        + '</div>'
+        + '</div>';
+      return;
+    }
     var liveAudioIcon = '<svg viewBox="0 0 12 12" fill="currentColor"><path d="M3 2 L10 6 L3 10 Z"/></svg>';
     var stopIcon = '<svg viewBox="0 0 12 12" fill="currentColor"><rect x="3" y="3" width="6" height="6"/></svg>';
     var specOnIcon = '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 9 L4 5 L6 8 L8 3 L10 7"/></svg>';

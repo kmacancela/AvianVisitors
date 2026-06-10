@@ -40,7 +40,19 @@
     <button data-h="168" type="button">7D</button>
     <button data-h="1000000" type="button">ALL</button>
   </div>
+  <button class="menu-btn" id="menuBtn">login</button>
 </header>
+
+<aside id="menu-dd" aria-hidden="true">
+  <div id="dd-locked">
+    <form class="lock-row" id="unlockForm">
+      <input id="lockPass" type="password" placeholder="password" autocomplete="current-password">
+      <button type="submit" aria-label="unlock">-></button>
+    </form>
+    <p class="lock-hint" id="lockHint">enter password to unlock bird calls.</p>
+  </div>
+  <nav class="menu-items" id="dd-items"></nav>
+</aside>
 
 <main class="stage">
   <header class="static-head">
@@ -209,6 +221,6 @@
   </div>
 </section>
 
-<script src="./apt.js?v=20260608-hide-card-play-s25-i18-v1"></script>
+<script src="./apt.js?v=20260610-public-login-v1"></script>
 </body>
 </html>
