@@ -2478,6 +2478,7 @@
   // browser interpolates to the natural state. The same trick runs in
   // reverse on close.
   var atlasGridEl = document.getElementById('atlasGrid');
+  var modalCloseResetTimer = null;
   function morphFromRect(cardEl) {
     if (!cardEl) return null;
     var r = cardEl.getBoundingClientRect();
@@ -2491,6 +2492,10 @@
   }
   function morphModalOpen(modalCard, sourceCard) {
     if (!modalCard) return;
+    if (modalCloseResetTimer) {
+      clearTimeout(modalCloseResetTimer);
+      modalCloseResetTimer = null;
+    }
     modalCard.classList.remove('is-morphing');
     var from = morphFromRect(sourceCard);
     if (from) {
@@ -2530,12 +2535,17 @@
       modalCard.style.transform = 'translate3d(0, 8px, 0) scale(.96)';
     }
     modalCard.style.opacity = '0';
-    // After the transition, reset state for next open.
+    // Hide the shell before clearing the inline FLIP styles. If we clear
+    // first, the still-visible card snaps back to center for one frame.
     var settle = function () {
-      modalCard.classList.remove('is-morphing');
-      modalCard.style.transform = '';
-      modalCard.style.opacity = '';
       if (done) done();
+      if (modalCloseResetTimer) clearTimeout(modalCloseResetTimer);
+      modalCloseResetTimer = setTimeout(function () {
+        modalCard.classList.remove('is-morphing');
+        modalCard.style.transform = '';
+        modalCard.style.opacity = '';
+        modalCloseResetTimer = null;
+      }, 240);
     };
     setTimeout(settle, 380);
   }
