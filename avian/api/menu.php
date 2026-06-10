@@ -40,7 +40,6 @@ function av_basic_credentials(): array {
 }
 
 function av_unauthorized(): void {
-    header('WWW-Authenticate: Basic realm="AvianVisitors"');
     http_response_code(401);
     echo json_encode(['error' => 'unauthorized']);
     exit;

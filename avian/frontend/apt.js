@@ -1676,7 +1676,13 @@
   var locked  = document.getElementById('dd-locked');
   var items   = document.getElementById('dd-items');
   var lockHint= document.getElementById('lockHint');
-  function openDd()  { dd.classList.add('open'); dd.setAttribute('aria-hidden','false'); setTimeout(function () { document.getElementById('lockPass').focus(); }, 100); }
+  function openDd()  {
+    dd.classList.add('open');
+    dd.setAttribute('aria-hidden','false');
+    setTimeout(function () {
+      if (!privateAudioUnlocked) document.getElementById('lockPass').focus();
+    }, 100);
+  }
   function closeDd() { dd.classList.remove('open'); dd.setAttribute('aria-hidden','true'); }
   function toggleDd(){ dd.classList.contains('open') ? closeDd() : openDd(); }
   if (!publicMirror && dd && menuBtn) {
@@ -1685,12 +1691,10 @@
     document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeDd(); });
   }
 
-  // Probe menu.php with no Authorization header. On a LAN deploy
-  // (AV_REQUIRE_AUTH=0) it returns 200 immediately so the drawer
-  // renders directly. On a forwarded deploy with Caddy basic_auth in
-  // front, Caddy will already have validated credentials before this
-  // request reaches PHP - so a 200 here means we're authed, a 401
-  // means Caddy rejected and we need the lock-screen flow.
+  // Probe menu.php with no Authorization header. With no configured
+  // CADDY_PWD it returns 200 and the button becomes "menu". With a
+  // password set it returns a quiet 401, leaving the top-right button
+  // as "login" until the visitor unlocks from the drawer.
   function tryAutoUnlock() {
     if (publicMirror || !dd || !items) return;
     fetch(apiUrl('menu.php'), { credentials: 'same-origin' }).then(function (r) {
@@ -1741,6 +1745,7 @@
   //     the follow-up list)
   function renderMenu(menu) {
     unlockPrivateAudio();
+    if (menuBtn) menuBtn.textContent = 'menu';
     locked.style.display = 'none';
     items.classList.add('show');
     var liveAudioIcon = '<svg viewBox="0 0 12 12" fill="currentColor"><path d="M3 2 L10 6 L3 10 Z"/></svg>';
